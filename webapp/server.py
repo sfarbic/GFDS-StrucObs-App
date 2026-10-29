@@ -11,7 +11,8 @@ whose filename is None is a note taken before the picture.
 Storage:
     data/projects.json            index of every project
     data/<pid>/visit.json         that project's items + plans
-    data/<pid>/template.docx      that project's Word report template, if any
+    data/report_template.docx     the Word report template every project uses, if any
+    data/report_template.json     its record: name, upload time, styles
     uploads/<pid>/<item_id>/...   that project's photos + audio
     uploads/<pid>/plans/...       that project's plan files
 
@@ -989,14 +990,28 @@ def api_plan():
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def template_path(pid=None):
-    pid = pid or current_pid()
-    return os.path.join(project_data_dir(pid), "template.docx")
+# One report template for the whole app, set up once and used by every
+# project's export. It lives beside projects.json, outside git.
+
+def template_path():
+    return os.path.join(DATA_DIR, "report_template.docx")
 
 
-def has_template(data, pid):
+def _template_record_file():
+    return os.path.join(DATA_DIR, "report_template.json")
+
+
+def load_template_record():
+    try:
+        with open(_template_record_file(), encoding="utf-8") as fh:
+            return json.load(fh) or None
+    except (OSError, ValueError):
+        return None
+
+
+def has_template():
     """A template counts only when both the record and the file are there."""
-    return bool(data.get("template")) and os.path.exists(template_path(pid))
+    return bool(load_template_record()) and os.path.exists(template_path())
 
 
 def _template_json(rec):
@@ -1006,16 +1021,13 @@ def _template_json(rec):
 
 @app.route("/api/template")
 @require_pin
-@require_project
 def api_template_get():
     with _lock:
-        data = load()
-        return _template_json(data.get("template"))
+        return _template_json(load_template_record())
 
 
 @app.route("/api/template", methods=["POST"])
 @require_pin
-@require_project
 def api_template_upload():
     try:
         from docx import Document
@@ -1034,9 +1046,8 @@ def api_template_upload():
     if not low.endswith(".docx"):
         raise ApiError("template must be a Word .docx file")
 
-    pid = current_pid()
     with _lock:
-        path = template_path(pid)
+        path = template_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # land it beside the real name first: a file that will not open must
         # not replace a template that already works
@@ -1053,26 +1064,21 @@ def api_template_upload():
                 pass
             raise ApiError("not a readable .docx file")
         os.replace(tmp, path)
-        data = load(pid)
         rec = {"name": name, "uploaded": _now(), "styles": styles}
-        data["template"] = rec
-        save(data, pid)
+        with open(_template_record_file(), "w", encoding="utf-8") as fh:
+            json.dump(rec, fh)
         return _template_json(rec)
 
 
 @app.route("/api/template", methods=["DELETE"])
 @require_pin
-@require_project
 def api_template_delete():
-    pid = current_pid()
     with _lock:
-        try:
-            os.remove(template_path(pid))
-        except OSError:
-            pass  # record removal is what matters; a missing file is not an error
-        data = load(pid)
-        data["template"] = None
-        save(data, pid)
+        for path in (template_path(), _template_record_file()):
+            try:
+                os.remove(path)
+            except OSError:
+                pass  # already gone is the goal, not an error
         return jsonify(ok=True)
 
 
@@ -1124,7 +1130,7 @@ def _module_report(data, pid, entry):
                 item_dir=lambda item_id: item_dir(item_id, pid),
                 plans_dir=plans_dir(pid),
                 work_dir=Path(tmp) / "plans",
-                template=template_path(pid) if has_template(data, pid) else None,
+                template=template_path() if has_template() else None,
                 visit_date=_visit_date(entry),
                 tz=LOCAL_TZ,
             )
@@ -1299,8 +1305,8 @@ def _report_buffer(data, pid, entry=None):
     from docx import Document
     from docx.shared import Inches, Pt
 
-    if has_template(data, pid):
-        path = template_path(pid)
+    if has_template():
+        path = template_path()
         try:
             return _to_buffer(_styled_doc(data, pid, path, Document, Inches, Pt)), notice
         except Exception as exc:

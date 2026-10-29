@@ -176,6 +176,27 @@ def test_docx_export_uses_the_uploaded_template(client):
     assert "Old report text" not in _text(doc)
     assert "ITEM 1.1" in _text(doc)
 
+    # one template for the whole app: a project made later uses it too
+    assert client.post("/api/projects", json={"name": "Oak Ave"}).status_code == 200
+    _capture(client)
+    doc = Document(io.BytesIO(client.get("/api/export/docx").data))
+    assert doc.sections[-1].header.paragraphs[0].text == "ACME ENGINEERS LETTERHEAD"
+
+
+def test_template_is_set_up_once_without_a_project_open(client):
+    assert client.post("/api/projects/close").status_code == 200
+    buf = io.BytesIO()
+    Document().save(buf)
+    buf.seek(0)
+
+    r = client.post("/api/template", data={"template": (buf, "GFDS SOR.docx")},
+                    content_type="multipart/form-data")
+
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert client.get("/api/template").get_json()["template"]["name"] == "GFDS SOR.docx"
+    assert client.delete("/api/template").status_code == 200
+    assert client.get("/api/template").get_json()["template"] is None
+
 
 def test_docx_export_falls_back_when_the_module_fails(client, monkeypatch):
     from sitescribe import word_report

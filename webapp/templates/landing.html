@@ -49,6 +49,11 @@ input[type=text]{width:100%;padding:13px;border:1px solid var(--line);border-rad
   border:1px dashed var(--line);border-radius:13px;font-size:14px}
 .msg{font-size:13px;margin-top:12px;min-height:18px;text-align:center}
 .msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}.msg.warn{color:var(--warn)}
+.tpl{font-size:14px;margin-bottom:10px;overflow:hidden;text-overflow:ellipsis}
+.tpl b{font-weight:650}
+.tpl .meta{color:var(--mut);font-size:12.5px}
+.tplRow{display:flex;gap:8px}
+.tplRow button{flex:1}
 footer{text-align:center;color:var(--mut);font-size:12px;padding:26px 0 8px}
 footer a{color:var(--mut)}
 </style>
@@ -74,6 +79,20 @@ footer a{color:var(--mut)}
 <div class="sec">
   <h2>Open an existing report</h2>
   <div id="list"></div>
+</div>
+
+<div class="sec">
+  <h2>Report template</h2>
+  <div class="new">
+    <div class="tpl" id="tplInfo">Loading…</div>
+    <div class="tplRow">
+      <button class="ghost" id="tplChange">Upload template</button>
+      <button class="ghost" id="tplRemove" hidden>Remove</button>
+    </div>
+    <div class="hint">Every report's Word export uses this template. Set it up once; change it only when the firm's template changes.</div>
+    <input type="file" id="tplInput" hidden
+           accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+  </div>
 </div>
 
 <div class="msg" id="msg"></div>
@@ -193,7 +212,36 @@ async function del(id){
   }catch(err){ say(err.message,"bad"); }
 }
 
+/* ---------------- report template (one for the whole app) ---------------- */
+function renderTemplate(t){
+  $('tplInfo').innerHTML = t
+    ? `<b>${esc(t.name)}</b><div class="meta">Uploaded ${ago(t.uploaded)}</div>`
+    : `<span class="meta">No template — exports use the plain built-in format.</span>`;
+  $('tplChange').textContent = t ? "Change template" : "Upload template";
+  $('tplRemove').hidden = !t;
+}
+async function loadTemplate(){
+  try{ renderTemplate((await api('/api/template')).template); }
+  catch(err){ $('tplInfo').textContent = err.message; }
+}
+$('tplChange').onclick = () => $('tplInput').click();
+$('tplInput').onchange = async ev => {
+  const f = ev.target.files[0]; if (!f) return; ev.target.value = "";
+  const fd = new FormData(); fd.append("template", f);
+  say("Uploading template…","warn");
+  try{
+    const r = await api('/api/template', {method:"POST", body:fd});
+    renderTemplate(r.template); say(`Template set — every report now uses “${r.template.name}”.`,"ok");
+  }catch(err){ say(err.message,"bad"); }
+};
+$('tplRemove').onclick = async () => {
+  if (!confirm("Remove the report template?\nEvery report's export goes back to the plain format.")) return;
+  try{ await api('/api/template', {method:"DELETE"}); renderTemplate(null); say("Template removed.","ok"); }
+  catch(err){ say(err.message,"bad"); }
+};
+
 load().catch(e => say(e.message,"bad"));
+loadTemplate();
 </script>
 </body>
 </html>

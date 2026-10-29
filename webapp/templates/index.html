@@ -97,11 +97,6 @@ textarea{min-height:82px;resize:vertical}
 .clip audio{flex:1;min-width:0;height:32px}
 .clip .id{font-size:10.5px;color:var(--mut);font-weight:700;flex:0 0 auto}
 .clip button{background:transparent;color:var(--bad);border:0;padding:3px 6px;font-size:16px}
-.tplBar{display:flex;align-items:center;gap:8px;background:var(--card);
-  border:1px solid var(--line);border-radius:11px;padding:9px 11px;margin-top:10px;
-  font-size:12px;color:var(--mut)}
-.tplBar b{color:var(--fg);font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tplBar .x{margin-left:auto;background:transparent;border:0;color:var(--bad);font-size:16px}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);
   border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));z-index:40}
 .bar .wrap{display:flex;gap:8px}
@@ -132,7 +127,6 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
   </div>
   <div style="display:flex;gap:6px;flex:0 0 auto">
     <button class="ghost sm" id="btnPlans">Plans</button>
-    <button class="ghost sm" id="btnTemplate">Template</button>
   </div>
 </header>
 
@@ -158,7 +152,6 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 <input type="file" accept="image/*" capture="environment" id="camInput">
 <input type="file" accept="image/*" id="libInput">
 <input type="file" accept="application/pdf,image/*" id="planInput">
-<input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" id="tplInput">
 
 <div class="inc">
   <div class="t">Include in report
@@ -194,7 +187,6 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
   <input type="text" id="tags" placeholder="comma, separated, tags">
 </div>
 
-<div id="tplBar"></div>
 <div class="msg" id="status"></div>
 </div>
 
@@ -243,7 +235,7 @@ const IMPORTANCE = ["Info","Minor","Major","Critical","Safety"];
 const esc = s => String(s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-let items = [], plans = [], template = null, ii = 0, pi = 0;
+let items = [], plans = [], ii = 0, pi = 0;
 let pendingLoc = null;
 
 const item  = () => items[ii] || null;
@@ -372,7 +364,6 @@ async function load(){
     $('projName').textContent = p ? p.name : "GFDS StrucObs";
     document.title = p ? `${p.name} — GFDS StrucObs` : "GFDS StrucObs";
   }).catch(()=>{});
-  loadTemplate();
   const d = await api('/api/visit');
   items = d.items; plans = d.plans;
   if (ii >= items.length) ii = Math.max(0, items.length-1);
@@ -695,36 +686,6 @@ $('planCanvas').onclick = ev => {
 $('planClear').onclick = () => { pendingLoc=null; $('planPin').hidden=true;
   $('planMsg').textContent="Marker cleared."; };
 $('planDone').onclick = async () => { $('planDlg').close(); await patch({location:pendingLoc}); };
-
-/* ---------------- report template ---------------- */
-async function loadTemplate(){
-  try{ const r = await api('/api/template'); template = r.template || null; }
-  catch(e){ template = null; }
-  renderTemplate();
-}
-function renderTemplate(){
-  if (!template){ $('tplBar').innerHTML = ""; return; }
-  const n = (template.styles||[]).length;
-  $('tplBar').innerHTML = `<span>&#128196;</span><b>${esc(template.name)}</b>
-    <span>&middot; ${n} style${n===1?"":"s"} &middot; report will match it</span>
-    <button class="x" id="tplDel" title="Remove template">&times;</button>`;
-  $('tplDel').onclick = async () => {
-    if (!confirm("Remove the report template?\nExports go back to the plain format.")) return;
-    await api('/api/template',{method:"DELETE"});
-    template=null; renderTemplate(); say("Template removed.","ok");
-  };
-}
-$('btnTemplate').onclick = () => $('tplInput').click();
-$('tplInput').onchange = async ev => {
-  const f = ev.target.files[0]; if (!f) return; ev.target.value="";
-  const fd = new FormData(); fd.append("template", f);
-  say("Uploading template…","warn");
-  try{
-    const r = await api('/api/template',{method:"POST", body:fd});
-    template = r.template || r; renderTemplate();
-    say(`Template set — the report will use “${template.name}” formatting.`,"ok");
-  }catch(err){ say(err.message,"bad"); }
-};
 
 $('btnExport').onclick = async () => {
   const any = items.some(it => it.photos.some(p => p.include));

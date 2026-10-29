@@ -71,8 +71,14 @@ other requests.
 
 ## Report template (formatting only)
 
-Upload your firm's Word template with the **Template** button and the export
-inherits its styles, fonts, margins, header/footer and logo. **No AI involved** —
+There is **one template for the whole app**, set up once under **Report
+template** on the landing page and used by every report's export. It is stored
+as `data/report_template.docx` (outside git) and only needs changing when the
+firm's template does.
+
+The export inherits the template's styles, fonts, margins, header/footer and
+logo. A template with Jinja tags (`{{ ... }}`) is rendered by docxtpl and
+decides the whole layout; see `sitescribe/word_report.py`. **No AI involved** —
 python-docx opens the template as the base document and writes content using its
 named styles (`Title`, `Heading 1`, `Body Text`, `Caption`), falling back to
 `Normal` for any the template lacks.
@@ -85,9 +91,9 @@ the plain format.
 
 | Route | Does |
 |---|---|
-| `GET /api/template` | the record, or null |
-| `POST /api/template` | multipart `template` (.docx only) |
-| `DELETE /api/template` | revert to plain formatting |
+| `GET /api/template` | the app-wide record, or null (no project needed) |
+| `POST /api/template` | multipart `template` (.docx only); replaces it for every report |
+| `DELETE /api/template` | every report reverts to plain formatting |
 
 ## Data model
 
