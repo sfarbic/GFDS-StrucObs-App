@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>SiteScribe</title>
+<title>GFDS StrucObs</title>
 <style>
 :root{
   --bg:#fff;--fg:#14181d;--mut:#667085;--line:#e4e7ec;--card:#f9fafb;--card2:#f2f4f7;
@@ -369,8 +369,8 @@ function renderClips(){
 async function load(){
   api('/api/projects').then(r => {
     const p = r.projects.find(x => x.project_id === r.current);
-    $('projName').textContent = p ? p.name : "SiteScribe";
-    document.title = p ? `${p.name} — SiteScribe` : "SiteScribe";
+    $('projName').textContent = p ? p.name : "GFDS StrucObs";
+    document.title = p ? `${p.name} — GFDS StrucObs` : "GFDS StrucObs";
   }).catch(()=>{});
   loadTemplate();
   const d = await api('/api/visit');

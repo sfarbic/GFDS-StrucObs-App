@@ -92,7 +92,7 @@ def require_pin(fn):
 
 LOGIN_HTML = """<!DOCTYPE html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<title>SiteScribe</title><style>
+<title>GFDS StrucObs</title><style>
 :root{--bg:#fff;--fg:#14181d;--mut:#667085;--line:#e4e7ec;--card:#f9fafb;--accent:#1554b8;--bad:#b42318}
 @media(prefers-color-scheme:dark){:root{--bg:#101418;--fg:#e8eaed;--mut:#98a2b3;--line:#272c33;--card:#171b20;--accent:#4d8df0;--bad:#ff8a80}}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;
@@ -105,7 +105,7 @@ border:1px solid var(--line);border-radius:10px;background:var(--card);color:var
 button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:600 16px system-ui}
 .err{color:var(--bad);font-size:14px;margin-top:12px}
 </style></head><body><div class=box>
-<h1>Site<span>Scribe</span></h1>
+<h1>GFDS <span>StrucObs</span></h1>
 <p>Structural observation reports from your phone.</p>
 <form method=post>
 <input name=pin type=tel inputmode=numeric maxlength=12 autocomplete=off
