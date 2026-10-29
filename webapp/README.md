@@ -83,7 +83,8 @@ raises, the traceback is logged to stderr and the built-in python-docx report
 below ships instead, so the user always gets a file; the response then carries
 an `X-SiteScribe-Report-Notice` header saying why.
 
-The **Export** button uses two requests so a phone sees progress and a real
+The project page's **Generate report** button (it picks the visit, opens
+it, then exports) uses two requests so a phone sees progress and a real
 error instead of a blank tab: `POST /api/export/build` builds the bundle zip
 (report, EXIF-tagged photos, pinned plan pages), keeps it as
 `data/<pid>/export.zip` and answers `{url, name, bytes, seconds, notice}`; the
@@ -143,23 +144,14 @@ any other size in the Word report.
 
 ## Voice to text
 
-Two independent paths, so the app never depends on a paid key:
-
-1. **Dictate** (primary) — Web Speech API, runs in the browser, **free, no key**.
-   Works in Chrome/Android and Safari/iOS 14.5+. Live interim text appears as you
-   speak; only finalized text is persisted. Needs HTTPS, which the tunnel provides.
-2. **Record audio** (optional) — uploads and **keeps** the clip on the server.
-   A per-item checkbox decides whether it is also transcribed:
-   - unchecked (default) → audio is stored and nothing is sent anywhere
-   - checked → Whisper transcribes it, if `OPENAI_API_KEY` is set
-     (~$0.006/min, noticeably better on structural jargon)
-
-   Every recording is kept — `I-001-A-01`, `I-001-A-02`, … — playable inline and
-   individually deletable. Useful when you would rather re-listen on site than
-   trust a transcript.
+Description and Action each have a **Dictate** button: the Web Speech API,
+in the browser, **free, no key**, always written straight into the box as
+text. Works in Chrome/Android and Safari/iOS 14.5+; needs HTTPS. Either box
+can be typed in too. The audio-recording routes below remain on the server
+but the items screen no longer offers recording.
 
 If neither is available, the phone keyboard's own mic key dictates into the
-description box with no code at all.
+description or action box with no code at all.
 
 ## Adding a photo
 

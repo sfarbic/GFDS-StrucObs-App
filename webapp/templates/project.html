@@ -15,6 +15,8 @@
 .ai .hd{font-size:14px}
 .ai .act{font-size:13.5px;margin-top:4px}
 .ai .act b{color:var(--mut);font-weight:600}
+select{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;
+  background:var(--bg);color:var(--fg);font:inherit}
 .toggle{background:none;border:0;color:var(--accent);padding:0;font-size:13px;font-weight:600;cursor:pointer}
 {% endblock %}
 {% block content %}
@@ -34,8 +36,15 @@
     <button class="ghost" id="eCancel">Cancel</button><button id="eSave">Save</button></div>
 </div>
 
-<div class="sec">
-  <a class="btn wide" href="/projects/{{ jid }}/visits/new" id="btnNewVisit">+ New site visit</a>
+<div class="sec row">
+  <a class="btn" href="/projects/{{ jid }}/visits/new" id="btnNewVisit">+ New site visit</a>
+  <button class="ghost" id="btnReport">Generate report</button>
+</div>
+<div class="sec card" id="reportBox" hidden>
+  <label class="f" for="reportVisit">Report for</label>
+  <select id="reportVisit"></select>
+  <div class="row" style="margin-top:12px">
+    <button class="ghost" id="reportCancel">Cancel</button><button id="reportGo">Generate</button></div>
 </div>
 
 <div class="sec">
@@ -131,7 +140,45 @@ async function delVisit(pid){
   catch(err){ say(err.message,"bad"); }
 }
 
-$('showClosed').onclick = () => { showClosed = !showClosed; renderActions(); };
+/* ---------------- report ---------------- */
+$('btnReport').onclick = () => {
+  if (!page.visits.length) return alert("Create a site visit before generating a report.");
+  if (page.visits.length === 1) return generate(page.visits[0]);
+  $('reportVisit').innerHTML = page.visits.map(v =>
+    `<option value="${v.project_id}">Site Visit ${v.visit_no} · ${shortDate(v.visit_date)}</option>`).join("");
+  $('reportBox').hidden = false;
+};
+$('reportCancel').onclick = () => { $('reportBox').hidden = true; };
+$('reportGo').onclick = () => generate(page.visits.find(v => v.project_id === $('reportVisit').value));
+
+/* what Previous Action Items would print in this visit's report */
+const previousFor = v => page.action_items.filter(a => a.include && a.visit_no < v.visit_no
+  && (!a.closed_visit_no || a.closed_visit_no >= v.visit_no));
+
+async function generate(v){
+  if (!v.included && !previousFor(v).length &&
+      !confirm(`Site Visit ${v.visit_no} has no items in the report yet.\n\nGenerate it anyway?`)) return;
+  const btn = $('btnReport');
+  if (btn.disabled) return;
+  // two steps so a phone shows progress and a real error: build, then download
+  btn.disabled = true; btn.textContent = "Building…";
+  say(`Building the Site Visit ${v.visit_no} report… a big visit can take a minute.`,"warn");
+  try{
+    await api(`/api/projects/${v.project_id}/open`, {method:"POST"});
+    const r = await api('/api/export/build', {method:"POST"});
+    const mb = (r.bytes/1048576).toFixed(1);
+    location.href = r.url;
+    $('reportBox').hidden = true;
+    if (r.notice) say(`Report ready (${mb} MB), downloading — note: ${r.notice}.`,"warn");
+    else say(`Report ready (${mb} MB), downloading…`,"ok");
+  }catch(err){ say("Report failed: " + err.message,"bad"); }
+  finally{
+    btn.disabled = false; btn.textContent = "Generate report";
+    $('msg').scrollIntoView({block:"nearest"});
+  }
+}
+
+$('showClosed').onclick =() => { showClosed = !showClosed; renderActions(); };
 $('btnEdit').onclick = () => {
   const j = page.job;
   $('eName').value = j.name; $('eNumber').value = j.number; $('eAddress').value = j.address;

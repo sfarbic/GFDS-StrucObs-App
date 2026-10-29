@@ -146,11 +146,9 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 </div>
 <div class="row" style="margin-top:8px">
   <button id="btnTake">&#128247; Take photo</button>
-  <button class="ghost" id="btnChoose">&#128449; Choose</button>
   <button class="danger" id="btnDelPhoto" style="flex:0 0 auto">&#128465;</button>
 </div>
 <input type="file" accept="image/*" capture="environment" id="camInput">
-<input type="file" accept="image/*" id="libInput">
 <input type="file" accept="application/pdf,image/*" id="planInput">
 
 <div class="inc">
@@ -166,20 +164,16 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 
 <div class="card">
   <h2>Description</h2>
-  <textarea id="desc" placeholder="Describe this incident — or dictate it."></textarea>
-  <div class="row" style="margin-top:8px">
-    <button id="btnDictate">&#127908; Dictate</button>
-    <button class="ghost" id="btnRec">● Record audio</button>
-  </div>
-  <label class="tx"><input type="checkbox" id="txToggle">
-    <span>Transcribe recordings to text (needs an API key — off = keep audio only)</span></label>
-  <div id="clips"></div>
+  <textarea id="desc" placeholder="Type the description — or dictate it."></textarea>
+  <button class="wide dict" id="btnDictate" style="margin-top:8px">&#127908; Dictate</button>
   <div class="msg" id="recMsg"></div>
 </div>
 
 <div class="card">
   <h2>Action <span style="text-transform:none;letter-spacing:0">(optional — makes this an action item)</span></h2>
-  <textarea id="action" placeholder="e.g. The Contractor will install new headers per 4/S8.1."></textarea>
+  <textarea id="action" placeholder="Type the action — or dictate it. e.g. The Contractor will install new headers per 4/S8.1."></textarea>
+  <button class="wide dict" id="btnDictateAct" style="margin-top:8px">&#127908; Dictate</button>
+  <div class="msg" id="actMsg"></div>
   <div id="axBox"></div>
 </div>
 
@@ -198,7 +192,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 
 <div class="bar"><div class="wrap">
   <button id="btnNewItem" style="flex:2">+ New item</button>
-  <button class="ghost" id="btnExport" style="flex:1">Export</button>
+  <button class="ghost" id="btnFinish" style="flex:1.4">Finish site visit</button>
 </div></div>
 
 <dialog id="addDlg">
@@ -284,19 +278,19 @@ function render(){
       `<div class="empty"><p>No items yet.</p><button id="first">+ New item</button></div>`;
     $('first').onclick = newItem;
     $('photoLabel').textContent = "—";
-    $('locBody').innerHTML = ""; $('clips').innerHTML = "";
-    ['photoPrev','photoNext','btnTake','btnChoose','btnDelPhoto','btnDelItem','include',
-     'desc','tags','btnDictate','btnRec','action'].forEach(id => $(id).disabled = true);
+    $('locBody').innerHTML = "";
+    ['photoPrev','photoNext','btnTake','btnDelPhoto','btnDelItem','include',
+     'desc','tags','btnDictate','btnDictateAct','action'].forEach(id => $(id).disabled = true);
     $('axBox').innerHTML = "";
     return;
   }
-  ['photoPrev','photoNext','btnTake','btnChoose','btnDelPhoto','btnDelItem','include',
-   'desc','tags','btnDictate','btnRec','action'].forEach(id => $(id).disabled = false);
+  ['photoPrev','photoNext','btnTake','btnDelPhoto','btnDelItem','include',
+   'desc','tags','btnDictate','btnDictateAct','action'].forEach(id => $(id).disabled = false);
 
   if (!e){
     $('photoBox').innerHTML = `<div class="empty"><p>No photo entries.</p>
       <button id="addFirst">&#128247; Take photo</button></div>`;
-    $('addFirst').onclick = () => { pendingSource = "cam"; addEntry("clear"); };
+    $('addFirst').onclick = () => addEntry("clear");
     $('photoLabel').textContent = "—";
     return;
   }
@@ -307,12 +301,8 @@ function render(){
   } else {
     $('photoBox').innerHTML = `<div class="empty">
       <p>No image on ITEM ${label(e)} yet</p>
-      <div class="row" style="max-width:320px;margin:0 auto">
-        <button id="shootCam">&#128247; Take photo</button>
-        <button class="ghost" id="shootLib">&#128449; Choose</button>
-      </div></div>`;
-    $('shootCam').onclick = () => pick("cam");
-    $('shootLib').onclick = () => pick("lib");
+      <button id="shootCam">&#128247; Take photo</button></div>`;
+    $('shootCam').onclick = takePhoto;
   }
 
   const n = it.photos.length;
@@ -326,8 +316,10 @@ function render(){
   $('incHint').textContent = e.include
     ? "This incident will appear in the Word report"
     : "Excluded — will NOT appear in the report";
-  $('desc').value = e.description || "";
-  if (document.activeElement !== $('action')) $('action').value = e.action || "";
+  /* never overwrite a box mid-dictation or mid-typing */
+  if (dictating !== "desc") $('desc').value = e.description || "";
+  if (dictating !== "action" && document.activeElement !== $('action'))
+    $('action').value = e.action || "";
   renderActions();
   $('tags').value = (e.tags || []).join(", ");
 
@@ -352,23 +344,6 @@ function render(){
     $('locBody').innerHTML = `<button class="ghost wide" id="locPick">Pick location on plan</button>`;
     $('locPick').onclick = openPlan;
   }
-
-  renderClips();
-}
-
-function renderClips(){
-  const e = entry(), clips = (e && e.audio_clips) || [];
-  $('clips').innerHTML = clips.map(c => `
-    <div class="clip"><span class="id idTag">${c.clip_id}</span>
-      <audio controls preload="none" src="${c.url}"></audio>
-      <button data-id="${c.clip_id}" title="Delete recording">&times;</button></div>`).join("");
-  [...$('clips').querySelectorAll('button')].forEach(b => b.onclick = async () => {
-    if (!confirm(`Delete recording ${b.dataset.id}?`)) return;
-    await api(`/api/item/${item().item_id}/photo/${entry().photo_id}/audio/${b.dataset.id}`,
-              {method:"DELETE"});
-    entry().audio_clips = clips.filter(c => c.clip_id !== b.dataset.id);
-    renderClips();
-  });
 }
 
 /* updates and close-out, once the entry has a saved Action */
@@ -420,7 +395,7 @@ async function addEntry(mode){
   it.photos.push(e); pi = it.photos.length-1;
   render();
   say(mode==="keep" ? `${e.photo_id} — details carried over.` : `${e.photo_id} — blank entry.`, "ok");
-  openPicker(pendingSource);
+  $('camInput').click();
 }
 
 $('itemPrev').onclick = () => { if (ii>0){ ii--; pi=0; render(); } };
@@ -445,22 +420,16 @@ $('btnDelItem').onclick = async () => {
   render(); say(`Item ${it.item_id} deleted.`,"ok");
 };
 
-/* Camera and library are separate inputs: `capture` sends you straight into
-   the phone's camera app, without it you get the photo library. */
-let pendingSource = "cam";
-function openPicker(src){ $(src === "cam" ? "camInput" : "libInput").click(); }
-
-/* Empty entry -> fill it. Entry already has an image -> ask Keep/Clear first,
-   then fill the new entry from the same source the user tapped. */
-function pick(src){
-  pendingSource = src;
+/* `capture` sends a phone straight into its camera app.
+   Empty entry -> fill it. Entry already has an image -> ask Keep/Clear first,
+   then take the new entry's photo. */
+function takePhoto(){
   const e = entry();
   if (!e) return addEntry("clear");
-  if (!e.filename) return openPicker(src);
+  if (!e.filename) return $('camInput').click();
   showAddDialog();
 }
-$('btnTake').onclick   = () => pick("cam");
-$('btnChoose').onclick = () => pick("lib");
+$('btnTake').onclick = takePhoto;
 
 function showAddDialog(){
   const e = entry();
@@ -469,7 +438,7 @@ function showAddDialog(){
   bits.push(e.importance);
   if (e.location) bits.push("same plan location");
   if ((e.tags||[]).length) bits.push(e.tags.join(", "));
-  $('keepPreview').textContent = "Carries over: " + bits.join(" · ") + ". Audio is not copied.";
+  $('keepPreview').textContent = "Carries over: " + bits.join(" · ") + ".";
   $('addDlg').showModal();
 }
 $('addCancel').onclick = () => $('addDlg').close();
@@ -490,7 +459,6 @@ async function onPicked(ev){
   render(); say(`Photo on ${e.photo_id}`,"ok");
 }
 $('camInput').onchange = onPicked;
-$('libInput').onchange = onPicked;
 
 $('btnDelPhoto').onclick = async () => {
   const it = item(), e = entry(); if (!e) return;
@@ -551,50 +519,49 @@ function assembleSpeech(results){
 }
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let sr=null, dictating=false, baseText="", finalText="", wantMore=false;
-if (!SR) $('btnDictate').title = "This browser has no speech recognition";
+/* one dictation at a time: which box it fills, and its button and message */
+let sr=null, dictating=null, baseText="", finalText="", wantMore=false;
+const DICTATE = {
+  desc:   {box:'desc',   btn:'btnDictate',    msg:'recMsg', field:'description'},
+  action: {box:'action', btn:'btnDictateAct', msg:'actMsg', field:'action'},
+};
+const MIC = "&#127908; Dictate";
+if (!SR) [$('btnDictate'), $('btnDictateAct')].forEach(b => b.title = "This browser has no speech recognition");
 
-$('btnDictate').onclick = () => {
-  if (!entry()) return say("Add a photo entry first","bad");
-  if (!SR){ $('recMsg').className="msg bad";
-    $('recMsg').textContent="No browser dictation — use the mic key on your keyboard."; return; }
-  if (dictating){ wantMore = false; sr.stop(); return; }
+function dictate(which){
+  const d = DICTATE[which], note = (t,c) => { $(d.msg).className = "msg "+c; $(d.msg).textContent = t; };
+  if (!entry()) return say("Add an item first","bad");
+  if (!SR) return note("No browser dictation — use the mic key on your keyboard.","bad");
+  if (dictating){ wantMore = false; sr.stop(); return; }   // either button stops it
   sr = new SR(); sr.lang = "en-US"; sr.interimResults = true;
   /* Chrome on Android duplicates finalised results when continuous is on, so
      run single-utterance there and restart on end while the user is still
      dictating. Desktop keeps continuous for a smoother stream. */
-  const ANDROID = /Android/i.test(navigator.userAgent);
-  sr.continuous = !ANDROID;
+  sr.continuous = !/Android/i.test(navigator.userAgent);
   wantMore = true;
-  /* keep the user's existing text exactly as typed, line breaks and all;
-     only add a separator when it does not already end in whitespace */
-  baseText = $('desc').value;
+  /* keep what is already typed exactly, line breaks and all; only add a
+     separator when it does not already end in whitespace */
+  baseText = $(d.box).value;
   if (baseText && !/\s$/.test(baseText)) baseText += " ";
   finalText = "";
-  sr.onstart = () => { dictating=true; $('btnDictate').textContent="■ Stop dictating";
-    $('recMsg').className="msg warn"; $('recMsg').textContent="Listening — speak now."; };
-  /* Rebuild from the whole results list every time. Several mobile browsers
-     report resultIndex as 0 on every event, so appending incrementally
-     re-adds words that were already final ("can you / can you see / ..."). */
-  /* Browsers disagree about what results[] holds. Some give one fragment per
-     entry ("can you", "see this"); others give a CUMULATIVE transcript in
-     every entry ("can you", "can you see", "can you see this"). Concatenating
-     blindly duplicates the cumulative kind. assembleSpeech() detects which by
-     testing whether each entry extends the previous one. */
+  sr.onstart = () => { dictating = which; $(d.btn).textContent = "■ Stop dictating";
+    note("Listening — speak now.","warn"); };
+  /* Rebuild from the whole results list every time: several mobile browsers
+     report resultIndex as 0 on every event, and some repeat the whole
+     transcript in every entry. assembleSpeech() copes with both. */
   sr.onresult = ev => {
     const { fin, interim } = assembleSpeech(ev.results);
     finalText = fin;
     const spoken = (fin + (fin && interim ? " " : "") + interim);
-    $('desc').value = baseText + spoken.replace(/\s+/g, " ").trimStart();
+    $(d.box).value = baseText + spoken.replace(/\s+/g, " ").trimStart();
   };
   sr.onerror = ev => {
     if (ev.error === "no-speech" && wantMore) return;   // restarting; stay quiet
     wantMore = false;
-    $('recMsg').className="msg bad";
-    $('recMsg').textContent = ev.error==="not-allowed" ? "Microphone permission denied."
+    note(ev.error==="not-allowed" ? "Microphone permission denied."
       : ev.error==="no-speech" ? "Didn't catch anything — try again."
       : ev.error==="network" ? "Dictation needs a network connection."
-      : "Dictation error: "+ev.error; };
+      : "Dictation error: "+ev.error, "bad"); };
   sr.onend = () => {
     if (wantMore) {                      // single-utterance mode: keep listening
       const committed = (baseText + finalText).replace(/\s+/g, " ").trimStart();
@@ -602,60 +569,18 @@ $('btnDictate').onclick = () => {
       finalText = "";
       try { sr.start(); return; } catch (e) { /* fall through and stop */ }
     }
-    dictating = false; $('btnDictate').innerHTML = "&#127908; Dictate";
+    dictating = null; $(d.btn).innerHTML = MIC;
     /* keep only finalised speech; drop any trailing interim guess */
-    $('desc').value = (baseText + finalText.replace(/\s+/g, " ").trimStart()).trimEnd();
-    patch({description: $('desc').value});
-    if (!$('recMsg').classList.contains("bad")){
-      $('recMsg').className = "msg ok";
-      $('recMsg').textContent = finalText.trim() ? "Dictation saved." : "Nothing captured.";
-    }
+    $(d.box).value = (baseText + finalText.replace(/\s+/g, " ").trimStart()).trimEnd();
+    patch({[d.field]: $(d.box).value});
+    if (!$(d.msg).classList.contains("bad"))
+      note(finalText.trim() ? "Dictation saved." : "Nothing captured.", "ok");
   };
   try { sr.start(); }
-  catch(err){ $('recMsg').className="msg bad"; $('recMsg').textContent="Could not start: "+err.message; }
-};
-
-/* ---------------- audio recording ---------------- */
-let mr, chunks=[], rec=false;
-$('btnRec').onclick = async () => {
-  if (!entry()) return say("Add a photo entry first","bad");
-  if (!rec){
-    if (!navigator.mediaDevices?.getUserMedia){
-      $('recMsg').className="msg bad"; $('recMsg').textContent="Mic needs HTTPS."; return; }
-    try{
-      const s = await navigator.mediaDevices.getUserMedia({audio:true});
-      mr = new MediaRecorder(s); chunks=[];
-      mr.ondataavailable = ev => chunks.push(ev.data);
-      mr.onstop = async () => {
-        s.getTracks().forEach(t=>t.stop());
-        const blob = new Blob(chunks,{type:mr.mimeType});
-        const wantText = $('txToggle').checked;
-        const fd = new FormData();
-        fd.append("audio", blob, "note.webm");
-        fd.append("transcribe", wantText ? "true" : "false");
-        $('recMsg').className="msg warn";
-        $('recMsg').textContent = wantText ? "Uploading and transcribing…" : "Saving recording…";
-        try{
-          const r = await api(
-            `/api/item/${item().item_id}/photo/${entry().photo_id}/audio`,
-            {method:"POST", body:fd});
-          (entry().audio_clips ||= []).push(r.clip);
-          if (r.description){ entry().description = r.description; $('desc').value = r.description; }
-          renderClips();
-          const kb = (r.clip.bytes/1024).toFixed(0);
-          $('recMsg').className="msg ok";
-          $('recMsg').textContent = r.transcript
-            ? `Saved ${r.clip.clip_id} (${kb} KB) and transcribed.`
-            : wantText ? `Saved ${r.clip.clip_id} (${kb} KB). No transcript — no API key; use Dictate.`
-                       : `Saved ${r.clip.clip_id} (${kb} KB). Audio kept, not transcribed.`;
-        }catch(err){ $('recMsg').className="msg bad"; $('recMsg').textContent=err.message; }
-      };
-      mr.start(); rec=true; $('btnRec').textContent="■ Stop";
-      $('recMsg').className="msg warn"; $('recMsg').textContent="Recording…";
-    }catch(err){ $('recMsg').className="msg bad";
-      $('recMsg').textContent = err.name==="NotAllowedError" ? "Mic permission denied." : err.name; }
-  } else { mr.stop(); rec=false; $('btnRec').textContent="● Record audio"; }
-};
+  catch(err){ note("Could not start: "+err.message, "bad"); }
+}
+$('btnDictate').onclick = () => dictate("desc");
+$('btnDictateAct').onclick = () => dictate("action");
 
 /* ---------------- plans ---------------- */
 $('btnPlans').onclick = () => $('planInput').click();
@@ -716,28 +641,11 @@ $('planClear').onclick = () => { pendingLoc=null; $('planPin').hidden=true;
   $('planMsg').textContent="Marker cleared."; };
 $('planDone').onclick = async () => { $('planDlg').close(); await patch({location:pendingLoc}); };
 
-$('btnExport').onclick = async () => {
-  const any = items.some(it => it.photos.some(p => p.include));
-  if (!any) return say("No incidents are included in the report.","bad");
-  // Two steps so the page can show progress and a real error on a phone:
-  // build the zip (the Word report, photos/ with each entry in its EXIF,
-  // plans/ with the pins) and then download the finished file from disk.
-  const btn = $('btnExport');
-  if (btn.disabled) return;
-  // the status line sits above the fold on a phone, so the button says it too
-  btn.disabled = true; btn.textContent = "Building…";
-  say("Building the report… a big visit can take a minute.","warn");
-  try{
-    const r = await api('/api/export/build',{method:"POST"});
-    const mb = (r.bytes/1048576).toFixed(1);
-    location.href = r.url;
-    if (r.notice) say(`Report ready (${mb} MB), downloading — note: ${r.notice}.`,"warn");
-    else say(`Report ready (${mb} MB), downloading…`,"ok");
-  }catch(err){ say("Export failed: " + err.message,"bad"); }
-  finally{
-    btn.disabled = false; btn.textContent = "Export";
-    $('status').scrollIntoView({block:"nearest"});
-  }
+/* back to the project page; the report is generated from there */
+$('btnFinish').onclick = async () => {
+  if (dictating){ wantMore = false; sr.stop(); }
+  try{ await api('/api/projects/close', {method:"POST"}); }catch(err){ /* leaving anyway */ }
+  location.href = job ? `/projects/${job.job_id}` : "/";
 };
 
 load().catch(e => say(e.message,"bad"));
