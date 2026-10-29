@@ -1,0 +1,60 @@
+{% extends "_base.html" %}
+{% block title %}Settings — GFDS StrucObs{% endblock %}
+{% block style %}
+.tpl{font-size:14px;margin-bottom:10px;overflow:hidden;text-overflow:ellipsis}
+.tpl b{font-weight:650}
+.tpl .meta{color:var(--mut);font-size:12.5px}
+{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/" title="Home">&lsaquo;</a>
+  <div class="t"><b>Settings</b><small>Apply to every project</small></div>
+</div>
+
+<div class="sec">
+  <h2>Default report template</h2>
+  <div class="card">
+    <div class="tpl" id="tplInfo">Loading…</div>
+    <div class="row">
+      <button class="ghost" id="tplChange">Upload template</button>
+      <button class="danger" id="tplRemove" hidden>Remove</button>
+    </div>
+    <div class="hint">Every site visit's Word export uses this template. Set it up once;
+      change it only when the firm's template changes.</div>
+    <input type="file" id="tplInput" hidden
+           accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+  </div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+function ago(iso){
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+function renderTemplate(t){
+  $('tplInfo').innerHTML = t
+    ? `<b>${esc(t.name)}</b><div class="meta">Uploaded ${ago(t.uploaded)}</div>`
+    : `<span class="meta">No template — exports use the plain built-in format.</span>`;
+  $('tplChange').textContent = t ? "Change template" : "Upload template";
+  $('tplRemove').hidden = !t;
+}
+$('tplChange').onclick = () => $('tplInput').click();
+$('tplInput').onchange = async ev => {
+  const f = ev.target.files[0]; if (!f) return; ev.target.value = "";
+  const fd = new FormData(); fd.append("template", f);
+  say("Uploading template…","warn");
+  try{
+    const r = await api('/api/template', {method:"POST", body:fd});
+    renderTemplate(r.template); say(`Template set — every report now uses “${r.template.name}”.`,"ok");
+  }catch(err){ say(err.message,"bad"); }
+};
+$('tplRemove').onclick = async () => {
+  if (!confirm("Remove the report template?\nEvery export goes back to the plain format.")) return;
+  try{ await api('/api/template', {method:"DELETE"}); renderTemplate(null); say("Template removed.","ok"); }
+  catch(err){ say(err.message,"bad"); }
+};
+api('/api/template').then(r => renderTemplate(r.template)).catch(e => say(e.message,"bad"));
+</script>
+{% endblock %}

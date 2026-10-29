@@ -120,7 +120,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 <div class="wrap">
 
 <header>
-  <a class="back" href="/" title="All reports">&lsaquo;</a>
+  <a class="back" href="/" id="backLink" title="Project">&lsaquo;</a>
   <div style="flex:1;min-width:0">
     <div class="projName" id="projName">&nbsp;</div>
     <div class="sub" id="visitSub">Loading…</div>
@@ -178,6 +178,12 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 </div>
 
 <div class="card">
+  <h2>Action <span style="text-transform:none;letter-spacing:0">(optional — makes this an action item)</span></h2>
+  <textarea id="action" placeholder="e.g. The Contractor will install new headers per 4/S8.1."></textarea>
+  <div id="axBox"></div>
+</div>
+
+<div class="card">
   <h2>Importance</h2>
   <div class="chips" id="impChips"></div>
 </div>
@@ -225,6 +231,8 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
   </div>
 </dialog>
 
+{% include "_actions.html" %}
+
 <script type="module">
 import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs";
 pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -236,6 +244,9 @@ const esc = s => String(s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 let items = [], plans = [], ii = 0, pi = 0;
+let visit = null, job = null;
+/* the printed number: ITEM <visit>.<entry number> */
+const label = e => `${visit ? visit.visit_no : "?"}.${e.number}`;
 let pendingLoc = null;
 
 const item  = () => items[ii] || null;
@@ -258,11 +269,11 @@ function render(){
   const it = item(), e = entry();
   const incidents = items.reduce((n,x)=>n+x.photos.length,0);
   const included  = items.reduce((n,x)=>n+x.photos.filter(p=>p.include).length,0);
-  $('visitSub').textContent =
+  $('visitSub').textContent = (visit ? `Site Visit ${visit.visit_no} · ` : "") +
     `${items.length} item${items.length===1?"":"s"} · ${incidents} incident${incidents===1?"":"s"} · ${included} in report`;
 
   $('itemLabel').innerHTML = it
-    ? `<small>Item</small><span class="idTag">${it.item_id}</span>
+    ? `<small>Item</small>${it.photos.length ? it.photos.map(label).join(", ") : it.item_id}
        <span style="color:var(--mut);font-weight:500;font-size:13px">${ii+1}/${items.length}</span>`
     : `<small>Item</small>—`;
   $('itemPrev').disabled = ii <= 0;
@@ -275,11 +286,12 @@ function render(){
     $('photoLabel').textContent = "—";
     $('locBody').innerHTML = ""; $('clips').innerHTML = "";
     ['photoPrev','photoNext','btnTake','btnChoose','btnDelPhoto','btnDelItem','include',
-     'desc','tags','btnDictate','btnRec'].forEach(id => $(id).disabled = true);
+     'desc','tags','btnDictate','btnRec','action'].forEach(id => $(id).disabled = true);
+    $('axBox').innerHTML = "";
     return;
   }
   ['photoPrev','photoNext','btnTake','btnChoose','btnDelPhoto','btnDelItem','include',
-   'desc','tags','btnDictate','btnRec'].forEach(id => $(id).disabled = false);
+   'desc','tags','btnDictate','btnRec','action'].forEach(id => $(id).disabled = false);
 
   if (!e){
     $('photoBox').innerHTML = `<div class="empty"><p>No photo entries.</p>
@@ -294,7 +306,7 @@ function render(){
     $('photoBox').innerHTML = `<img src="${e.url}" alt="">`;
   } else {
     $('photoBox').innerHTML = `<div class="empty">
-      <p>No image on <span class="idTag">${e.photo_id}</span> yet</p>
+      <p>No image on ITEM ${label(e)} yet</p>
       <div class="row" style="max-width:320px;margin:0 auto">
         <button id="shootCam">&#128247; Take photo</button>
         <button class="ghost" id="shootLib">&#128449; Choose</button>
@@ -305,7 +317,7 @@ function render(){
 
   const n = it.photos.length;
   $('photoLabel').innerHTML =
-    `${e.photo_id} <span style="color:var(--mut);font-weight:500;font-size:12px">${pi+1}/${n}</span>`;
+    `ITEM ${label(e)} <span style="color:var(--mut);font-weight:500;font-size:12px">${pi+1}/${n}</span>`;
   $('photoPrev').disabled = pi <= 0;
   $('photoNext').disabled = pi >= n - 1;
 
@@ -315,6 +327,8 @@ function render(){
     ? "This incident will appear in the Word report"
     : "Excluded — will NOT appear in the report";
   $('desc').value = e.description || "";
+  if (document.activeElement !== $('action')) $('action').value = e.action || "";
+  renderActions();
   $('tags').value = (e.tags || []).join(", ");
 
   $('impChips').innerHTML = IMPORTANCE.map(v =>
@@ -357,13 +371,26 @@ function renderClips(){
   });
 }
 
+/* updates and close-out, once the entry has a saved Action */
+function renderActions(){
+  const e = entry();
+  if (!e || !(e.action || "").trim() || !visit){ $('axBox').innerHTML = ""; return; }
+  const latest = job && job.last_visit ? job.last_visit.visit_no : visit.visit_no;
+  ActionUI.render($('axBox'), {
+    pid: visit.project_id, visit_no: visit.visit_no, photo_id: e.photo_id, label: label(e),
+    updates: e.updates, closed_visit_no: e.closed_visit_no,
+    default_visit_no: Math.max(latest, visit.visit_no + 1),
+  }, fresh => { Object.assign(e, fresh); renderActions(); });
+}
+
 /* ---------------- data ---------------- */
 async function load(){
-  api('/api/projects').then(r => {
-    const p = r.projects.find(x => x.project_id === r.current);
-    $('projName').textContent = p ? p.name : "GFDS StrucObs";
-    document.title = p ? `${p.name} — GFDS StrucObs` : "GFDS StrucObs";
-  }).catch(()=>{});
+  const cur = await api('/api/visits/current');
+  visit = cur.visit; job = cur.job;
+  const name = job ? job.name : "GFDS StrucObs";
+  $('projName').textContent = name;
+  document.title = `${name} SV${visit.visit_no} — GFDS StrucObs`;
+  if (job) $('backLink').href = `/projects/${job.job_id}`;
   const d = await api('/api/visit');
   items = d.items; plans = d.plans;
   if (ii >= items.length) ii = Math.max(0, items.length-1);
@@ -383,7 +410,7 @@ async function patch(fields){
 async function newItem(){
   const it = await api('/api/item', {method:"POST"});
   items.push(it); ii = items.length-1; pi = 0;
-  render(); say(`Created item ${it.item_id}`,"ok");
+  render(); say(`Created ITEM ${label(it.photos[0])}`,"ok");
 }
 
 async function addEntry(mode){
@@ -476,6 +503,8 @@ $('btnDelPhoto').onclick = async () => {
 $('include').onchange = ev => patch({include: ev.target.checked});
 let dT; $('desc').oninput = () => { clearTimeout(dT);
   dT = setTimeout(()=>patch({description:$('desc').value}), 700); };
+let aT; $('action').oninput = () => { clearTimeout(aT);
+  aT = setTimeout(()=>patch({action:$('action').value}), 700); };
 let tT; $('tags').oninput = () => { clearTimeout(tT); tT = setTimeout(()=>
   patch({tags: $('tags').value.split(",").map(s=>s.trim()).filter(Boolean)}), 700); };
 

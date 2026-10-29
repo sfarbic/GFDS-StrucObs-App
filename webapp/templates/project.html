@@ -1,0 +1,160 @@
+{% extends "_base.html" %}
+{% block title %}Project — GFDS StrucObs{% endblock %}
+{% block style %}
+.info .k{font-size:12px;color:var(--mut)}
+.info .v{font-size:15px;margin-bottom:8px}
+.visit{background:var(--card);border:1px solid var(--line);
+  border-radius:13px;padding:12px 14px;margin-bottom:10px}
+.visit .main{cursor:pointer}
+.visit .acts{display:flex;gap:8px;margin-top:10px}
+.visit .acts .btn:first-child{flex:1}
+.visit .nm{font-weight:650}
+.visit .meta{color:var(--mut);font-size:12.5px}
+.ai{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 14px;
+  margin-bottom:10px}
+.ai .hd{font-size:14px}
+.ai .act{font-size:13.5px;margin-top:4px}
+.ai .act b{color:var(--mut);font-weight:600}
+.toggle{background:none;border:0;color:var(--accent);padding:0;font-size:13px;font-weight:600;cursor:pointer}
+{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/projects" title="All projects">&lsaquo;</a>
+  <div class="t"><b id="title">Loading…</b><small id="sub"></small></div>
+  <button class="ghost sm" id="btnEdit">Edit</button>
+</div>
+
+<div class="sec card info" id="info"></div>
+<div class="sec card" id="editBox" hidden>
+  <label class="f" for="eName">Project name</label><input type="text" id="eName" maxlength="120">
+  <label class="f" for="eNumber">Project number</label><input type="text" id="eNumber" maxlength="40">
+  <label class="f" for="eAddress">Project address <small>(optional)</small></label>
+  <input type="text" id="eAddress" maxlength="300">
+  <div class="row" style="margin-top:14px">
+    <button class="ghost" id="eCancel">Cancel</button><button id="eSave">Save</button></div>
+</div>
+
+<div class="sec">
+  <a class="btn wide" href="/projects/{{ jid }}/visits/new" id="btnNewVisit">+ New site visit</a>
+</div>
+
+<div class="sec">
+  <h2>Site visits</h2>
+  <div id="visits"></div>
+</div>
+
+<div class="sec">
+  <h2>Action items <button class="toggle" id="showClosed"></button></h2>
+  <div id="actions"></div>
+</div>
+
+<div class="sec" style="text-align:center">
+  <button class="danger sm" id="btnDelete">Delete project</button>
+</div>
+{% include "_actions.html" %}
+{% endblock %}
+{% block script %}
+<script>
+const JID = {{ jid|tojson }};
+let page = null, showClosed = false;
+
+function renderInfo(){
+  const j = page.job;
+  $('title').textContent = j.name;
+  document.title = `${j.number ? j.number + " " : ""}${j.name} — GFDS StrucObs`;
+  $('sub').textContent = `${j.visits} site visit${j.visits===1?"":"s"}`;
+  $('info').innerHTML = `
+    <div class="k">Project number</div><div class="v"><span class="num">${esc(j.number) || "—"}</span></div>
+    <div class="k">Project name</div><div class="v">${esc(j.name)}</div>
+    <div class="k">Address</div><div class="v" style="margin:0">${esc(j.address) || "—"}</div>`;
+}
+
+function renderVisits(){
+  if (!page.visits.length){
+    $('visits').innerHTML = `<div class="empty">No site visits yet. Start one above.</div>`;
+    return;
+  }
+  $('visits').innerHTML = page.visits.map(v => `
+    <div class="visit" data-pid="${v.project_id}">
+      <div class="main" data-act="open">
+        <div class="nm">Site Visit ${v.visit_no} <span class="meta">· ${shortDate(v.visit_date)}</span></div>
+        <div class="meta">${v.items} item${v.items===1?"":"s"} · ${v.photos} entr${v.photos===1?"y":"ies"}
+          ${v.observed_by ? " · " + esc(v.observed_by) : ""}</div>
+      </div>
+      <div class="acts">
+        <button class="btn sm" data-act="open">Edit site visit</button>
+        <a class="btn ghost sm" href="/visits/${v.project_id}/edit">Visit info</a>
+        <button class="danger sm" data-act="delete" title="Delete site visit">&#128465;</button>
+      </div>
+    </div>`).join("");
+  $('visits').querySelectorAll('.visit').forEach(row => {
+    const pid = row.dataset.pid;
+    row.querySelectorAll('[data-act=open]').forEach(b => b.onclick = () => openVisit(pid));
+    row.querySelector('[data-act=delete]').onclick = () => delVisit(pid);
+  });
+}
+
+function renderActions(){
+  const all = page.action_items.filter(a => a.include);
+  const closed = all.filter(a => a.closed_visit_no).length;
+  $('showClosed').hidden = !closed;
+  $('showClosed').textContent = showClosed ? "· hide closed" : `· show ${closed} closed`;
+  const shown = all.filter(a => showClosed || !a.closed_visit_no);
+  if (!shown.length){
+    $('actions').innerHTML = `<div class="empty">${all.length ? "Every action item is closed."
+      : "No action items yet. Items with an Action appear here."}</div>`;
+    return;
+  }
+  $('actions').innerHTML = shown.map((a, i) => `
+    <div class="ai"><div class="hd"><span class="num">ITEM ${a.label}</span>
+      <span class="pill ${a.closed_visit_no ? "closed" : "open"}">${a.closed_visit_no ? "CLOSED" : "OPEN"}</span>
+      <span style="color:var(--mut);font-size:12.5px"> · Site Visit ${a.visit_no}</span></div>
+      <div class="act">${esc(a.description)}</div>
+      <div class="act"><b>Action:</b> ${esc(a.action)}</div>
+      <div id="ax${i}"></div></div>`).join("");
+  shown.forEach((a, i) => ActionUI.render($('ax' + i), a, () => load()));
+}
+
+async function load(){
+  page = await api(`/api/jobs/${JID}`);
+  renderInfo(); renderVisits(); renderActions();
+}
+
+async function openVisit(pid){
+  try{ await api(`/api/projects/${pid}/open`, {method:"POST"}); location.href = "/capture"; }
+  catch(err){ say(err.message,"bad"); }
+}
+async function delVisit(pid){
+  const v = page.visits.find(x => x.project_id === pid);
+  if (!confirm(`Delete Site Visit ${v.visit_no}?\n\n${v.items} item(s) and ${v.photos} entr${v.photos===1?"y":"ies"} with their photos will be permanently removed. This cannot be undone.`)) return;
+  try{ await api(`/api/projects/${pid}`, {method:"DELETE"}); await load(); say("Site visit deleted.","ok"); }
+  catch(err){ say(err.message,"bad"); }
+}
+
+$('showClosed').onclick = () => { showClosed = !showClosed; renderActions(); };
+$('btnEdit').onclick = () => {
+  const j = page.job;
+  $('eName').value = j.name; $('eNumber').value = j.number; $('eAddress').value = j.address;
+  $('editBox').hidden = false; $('info').hidden = true;
+};
+$('eCancel').onclick = () => { $('editBox').hidden = true; $('info').hidden = false; };
+$('eSave').onclick = async () => {
+  const body = {name: $('eName').value.trim(), number: $('eNumber').value.trim(),
+                address: $('eAddress').value.trim()};
+  try{
+    const others = (await api('/api/jobs')).jobs.filter(j => j.job_id !== JID);
+    const dup = others.find(j => j.number.trim().toLowerCase() === body.number.toLowerCase());
+    if (dup && !confirm(`Project ${dup.number} already exists: “${dup.name}”.\n\nSave anyway?`)) return;
+    await api(`/api/jobs/${JID}`, {method:"PATCH", json: body});
+    $('eCancel').click(); await load(); say("Saved.","ok");
+  }catch(err){ say(err.message,"bad"); }
+};
+$('btnDelete').onclick = async () => {
+  const j = page.job;
+  if (!confirm(`Delete project “${j.name}”?\n\nAll ${j.visits} site visit(s), their items and photos will be permanently removed. This cannot be undone.`)) return;
+  try{ await api(`/api/jobs/${JID}`, {method:"DELETE"}); location.href = "/projects"; }
+  catch(err){ say(err.message,"bad"); }
+};
+load().catch(e => say(e.message,"bad"));
+</script>
+{% endblock %}

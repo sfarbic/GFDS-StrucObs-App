@@ -107,8 +107,8 @@ def test_bundle_has_report_tagged_photos_and_pinned_plans(client):
 
     r, zf = _export(client)
 
-    assert "Elm St _ Level 2.zip" in r.headers["Content-Disposition"]
-    folder = "Elm St _ Level 2"
+    assert "Elm St _ Level 2 - Site Visit 1.zip" in r.headers["Content-Disposition"]
+    folder = "Elm St _ Level 2 - Site Visit 1"
     assert sorted(zf.namelist()) == sorted([
         f"{folder}/site_visit_report.docx",
         f"{folder}/photos/{first['filename']}",
@@ -148,7 +148,7 @@ def test_every_floor_plan_gets_its_own_image_even_with_the_same_name(client):
 
     _, zf = _export(client)
 
-    folder = "Elm St _ Level 2"
+    folder = "Elm St _ Level 2 - Site Visit 1"
     plan_images = sorted(n for n in zf.namelist() if "/plans/" in n)
     assert plan_images == sorted(f"{folder}/plans/{n}" for n in [
         "Level 1_page1.png", "Plans_page1.png", "plans (2)_page1.png", "Plans (3)_page1.png"])

@@ -1,0 +1,43 @@
+{% extends "_base.html" %}
+{% block title %}Projects — GFDS StrucObs{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/" title="Home">&lsaquo;</a>
+  <div class="t"><b>Existing project</b><small id="count">Loading…</small></div>
+  <a class="btn sm" href="/projects/new">+ New</a>
+</div>
+<div class="sec">
+  <input type="search" id="q" placeholder="Search number, name or address" autocomplete="off">
+</div>
+<div class="sec list" id="list"></div>
+{% endblock %}
+{% block script %}
+<script>
+let jobs = [];
+function render(){
+  const terms = $('q').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = jobs.filter(j => {
+    const hay = `${j.number} ${j.name} ${j.address}`.toLowerCase();
+    return terms.every(t => hay.includes(t));
+  });
+  $('count').textContent = terms.length
+    ? `${shown.length} of ${jobs.length} projects` : `${jobs.length} project${jobs.length===1?"":"s"} · by number`;
+  if (!jobs.length){
+    $('list').innerHTML = `<div class="empty">No projects yet.<br><a href="/projects/new">Create the first one</a>.</div>`;
+    return;
+  }
+  if (!shown.length){ $('list').innerHTML = `<div class="empty">No project matches.</div>`; return; }
+  $('list').innerHTML = shown.map(j => {
+    const last = j.last_visit
+      ? `Site Visit ${j.last_visit.visit_no} · ${shortDate(j.last_visit.visit_date)}` : "No site visits yet";
+    return `<a class="it" href="/projects/${j.job_id}" style="text-decoration:none">
+      <div class="main">
+        <div class="nm">${j.number ? `<span class="num">${esc(j.number)}</span> · ` : ""}${esc(j.name)}</div>
+        <div class="meta">${j.address ? esc(j.address) + " · " : ""}${last}</div>
+      </div><span class="go">&rsaquo;</span></a>`;
+  }).join("");
+}
+$('q').oninput = render;
+api('/api/jobs').then(r => { jobs = r.jobs; render(); }).catch(e => say(e.message,"bad"));
+</script>
+{% endblock %}

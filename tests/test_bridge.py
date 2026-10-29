@@ -114,7 +114,7 @@ def test_to_project_maps_entries_plans_and_captions(client, tmp_path):
     assert cracked.pin.sheet_id == f"{plan['plan_id']}:2" and cracked.pin.x == 0.5
     assert rust.photos == [] and rust.photo_path is None
     assert rust.severity == Severity.SAFETY and rust.pin.sheet_id == f"{plan['plan_id']}:1"
-    assert dup.include is False and dup.number == 2
+    assert dup.include is False and dup.number == 3       # entries number on through the visit
 
     # both pages of the pinned plan, rendered, with the ids the pins use
     assert [s.id for s in project.plans] == [f"{plan['plan_id']}:1", f"{plan['plan_id']}:2"]
@@ -229,14 +229,14 @@ def test_export_build_then_download(client):
     assert r.status_code == 200, r.get_data(as_text=True)
     built = r.get_json()
     assert built["url"] == "/api/export/download" and built["notice"] is None
-    assert built["name"] == "Elm St _ Level 2.zip" and built["bytes"] > 0
+    assert built["name"] == "Elm St _ Level 2 - Site Visit 1.zip" and built["bytes"] > 0
 
     r = client.get(built["url"])
     assert r.status_code == 200
-    assert r.headers["Content-Disposition"].endswith('filename="Elm St _ Level 2.zip"')
+    assert r.headers["Content-Disposition"].endswith('filename="Elm St _ Level 2 - Site Visit 1.zip"')
     names = zipfile.ZipFile(io.BytesIO(r.data)).namelist()
-    assert "Elm St _ Level 2/site_visit_report.docx" in names
-    assert any(n.startswith("Elm St _ Level 2/plans/") for n in names)
+    assert "Elm St _ Level 2 - Site Visit 1/site_visit_report.docx" in names
+    assert any(n.startswith("Elm St _ Level 2 - Site Visit 1/plans/") for n in names)
     assert "X-SiteScribe-Report-Notice" not in client.get("/api/export/docx").headers
 
 

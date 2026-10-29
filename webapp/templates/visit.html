@@ -1,0 +1,89 @@
+{% extends "_base.html" %}
+{% block title %}Site visit — GFDS StrucObs{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
+  <div class="t"><b id="title">{{ "Site visit info" if pid else "New site visit" }}</b><small id="sub">&nbsp;</small></div>
+</div>
+
+<div class="sec card">
+  <div class="row">
+    <div><label class="f" for="visitNo">Site Visit No</label>
+      <input type="number" id="visitNo" min="1" step="1" inputmode="numeric"></div>
+    <div><label class="f" for="visitDate">Date</label><input type="date" id="visitDate"></div>
+  </div>
+  <div class="warnTxt" id="dupWarn" hidden></div>
+  <label class="f" for="observedBy">By</label>
+  <input type="text" id="observedBy" maxlength="200" placeholder="Engineer on site">
+  <label class="f" for="othersPresent">Others Present</label>
+  <input type="text" id="othersPresent" maxlength="500" placeholder="e.g. J. Smith (GC superintendent)">
+  <label class="f" for="stage">Stage of Construction</label>
+  <textarea id="stage" placeholder="e.g. Second floor framing is complete; roof framing is underway."></textarea>
+  <label class="f" for="elements">Structural Elements Observed</label>
+  <textarea id="elements" placeholder="e.g. Second floor shear walls, hold-downs and roof framing."></textarea>
+  <div class="row" style="margin-top:16px">
+    {% if pid %}<button class="ghost" id="btnSave">Save</button>{% endif %}
+    <button id="btnGo">Edit site visit &rsaquo;</button>
+  </div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+const JID = {{ jid|tojson }}, PID = {{ pid|tojson }};
+let visits = [];
+
+function fields(){
+  return {visit_no: $('visitNo').value, visit_date: $('visitDate').value,
+          observed_by: $('observedBy').value, others_present: $('othersPresent').value,
+          stage_of_construction: $('stage').value, structural_elements_observed: $('elements').value};
+}
+function dup(){
+  const n = +$('visitNo').value;
+  return visits.find(v => v.visit_no === n && v.project_id !== PID);
+}
+$('visitNo').oninput = () => {
+  const d = dup();
+  $('dupWarn').hidden = !d;
+  if (d) $('dupWarn').textContent = `Site Visit ${d.visit_no} already exists (${shortDate(d.visit_date)}).`;
+};
+
+async function save(){
+  if (!$('visitNo').value) throw new Error("Enter the site visit number.");
+  const d = dup();
+  if (d && !confirm(`Site Visit ${d.visit_no} already exists. Use this number anyway?`)) return null;
+  if (PID) return (await api(`/api/visits/${PID}`, {method:"PATCH", json: fields()}));
+  return await api(`/api/jobs/${JID}/visits`, {method:"POST", json: fields()});
+}
+
+$('btnGo').onclick = async () => {
+  $('btnGo').disabled = true;
+  try{
+    const v = await save();
+    if (!v) return;
+    if (PID) await api(`/api/projects/${PID}/open`, {method:"POST"});
+    location.href = "/capture";
+  }catch(err){ say(err.message,"bad"); }
+  finally{ $('btnGo').disabled = false; }
+};
+if (PID) $('btnSave').onclick = async () => {
+  try{ if (await save()) say("Saved.","ok"); }catch(err){ say(err.message,"bad"); }
+};
+
+(async () => {
+  const page = await api(`/api/jobs/${JID}`);
+  visits = page.visits;
+  const j = page.job;
+  $('sub').textContent = `${j.number ? j.number + " · " : ""}${j.name}`;
+  if (PID){
+    const v = visits.find(x => x.project_id === PID);
+    $('title').textContent = `Site Visit ${v.visit_no} info`;
+    $('visitNo').value = v.visit_no; $('visitDate').value = v.visit_date;
+    $('observedBy').value = v.observed_by; $('othersPresent').value = v.others_present;
+    $('stage').value = v.stage_of_construction; $('elements').value = v.structural_elements_observed;
+  } else {
+    $('visitNo').value = page.next_visit_no; $('visitDate').value = today();
+    $('observedBy').value = page.observed_by;
+  }
+})().catch(e => say(e.message,"bad"));
+</script>
+{% endblock %}

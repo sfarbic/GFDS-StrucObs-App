@@ -1,0 +1,43 @@
+{% extends "_base.html" %}
+{% block title %}New project — GFDS StrucObs{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/" title="Home">&lsaquo;</a>
+  <div class="t"><b>New project</b><small>Project information</small></div>
+</div>
+
+<div class="sec"><div class="card">
+  <label class="f" for="name">Project name</label>
+  <input type="text" id="name" maxlength="120" autocomplete="off" placeholder="e.g. Elm St Retrofit">
+  <label class="f" for="number">Project number</label>
+  <input type="text" id="number" maxlength="40" autocomplete="off" placeholder="e.g. 24-117">
+  <div class="warnTxt" id="dupWarn" hidden></div>
+  <label class="f" for="address">Project address <small>(optional)</small></label>
+  <input type="text" id="address" maxlength="300" autocomplete="off" placeholder="Street, city">
+  <button class="wide" id="create" style="margin-top:16px">Create project</button>
+</div></div>
+{% endblock %}
+{% block script %}
+<script>
+let jobs = [];
+api('/api/jobs').then(r => { jobs = r.jobs; }).catch(()=>{});
+$('number').oninput = () => {
+  const n = $('number').value.trim().toLowerCase();
+  const dup = n && jobs.find(j => j.number.trim().toLowerCase() === n);
+  $('dupWarn').hidden = !dup;
+  if (dup) $('dupWarn').textContent = `Project ${dup.number} already exists: “${dup.name}”.`;
+};
+$('create').onclick = async () => {
+  const body = {name: $('name').value.trim(), number: $('number').value.trim(),
+                address: $('address').value.trim()};
+  if (!body.name) return say("Enter a project name.","bad");
+  if (!body.number) return say("Enter a project number.","bad");
+  if (!$('dupWarn').hidden && !confirm(`${$('dupWarn').textContent}\n\nCreate another with the same number?`)) return;
+  $('create').disabled = true;
+  try{
+    const j = await api('/api/jobs', {method:"POST", json: body});
+    location.href = `/projects/${j.job_id}`;
+  }catch(err){ say(err.message,"bad"); $('create').disabled = false; }
+};
+</script>
+{% endblock %}

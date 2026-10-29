@@ -1,0 +1,126 @@
+{# Action-item updates and close-out, shared by the project page and the
+   items screen. Self-contained: window.ActionUI.render(el, item, onChange)
+   where item is {pid, visit_no, photo_id, label, updates, closed_visit_no,
+   default_visit_no}; onChange gets the entry back from the server. #}
+<style>
+.ax{margin-top:10px}
+.ax .up{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;padding:7px 0;
+  border-top:1px dashed var(--line)}
+.ax .up .ut{flex:1}
+.ax .up .ut b{white-space:nowrap}
+.ax .up .for{display:block;color:var(--mut);font-size:11.5px}
+.ax .up button{background:transparent;color:var(--bad);border:0;padding:0 4px;font-size:17px;
+  line-height:1;cursor:pointer}
+.ax .acts{display:flex;gap:8px;margin-top:8px}
+.ax .acts button{flex:1;padding:9px 10px;font-size:13px;border-radius:9px;font-weight:600;
+  cursor:pointer}
+.ax .acts .add{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+.ax .acts .close{background:var(--ok);color:#fff;border:0}
+.ax .acts .reopen{background:transparent;color:var(--mut);border:1px solid var(--line)}
+.ax .state{font-size:12.5px;color:var(--mut);margin-top:6px}
+#axDlg{border:0;border-radius:14px;padding:0;background:var(--card);color:var(--fg);
+  width:min(480px,94vw)}
+#axDlg::backdrop{background:rgba(0,0,0,.6)}
+#axDlg .hd{padding:12px 14px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
+#axDlg .bd{padding:14px}
+#axDlg label{display:block;font-size:13px;font-weight:600;margin:10px 0 5px}
+#axDlg label:first-child{margin-top:0}
+#axDlg input,#axDlg textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;
+  background:var(--bg);color:var(--fg);font:inherit}
+#axDlg textarea{min-height:84px}
+#axDlg .pv{font-size:12.5px;color:var(--mut);margin-top:6px}
+#axDlg .ft{display:flex;gap:8px;padding:0 14px 14px}
+#axDlg .ft button{flex:1;padding:11px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer}
+#axDlg .ft .no{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+#axDlg .ft .yes{background:var(--accent);color:var(--accent-fg);border:0}
+#axDlg .err{color:var(--bad);font-size:12.5px;min-height:16px;margin-top:6px}
+</style>
+<dialog id="axDlg">
+  <div class="hd" id="axTitle">Add update</div>
+  <div class="bd">
+    <label for="axDate">Date</label>
+    <input type="date" id="axDate">
+    <label for="axText">Update</label>
+    <textarea id="axText" placeholder="e.g. Contractor photos show new headers installed per 4/S8.1."></textarea>
+    <div class="pv" id="axPreview"></div>
+    <label for="axVisit">Appears in the report for Site Visit #</label>
+    <input type="number" id="axVisit" min="1" step="1" inputmode="numeric">
+    <div class="err" id="axErr"></div>
+  </div>
+  <div class="ft"><button class="no" id="axCancel">Cancel</button>
+    <button class="yes" id="axSave">Save</button></div>
+</dialog>
+<script>
+window.ActionUI = (() => {
+  const g = id => document.getElementById(id);
+  const e = s => String(s ?? "").replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const CLOSE = "No further action required.";
+  const sd = iso => { const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(iso || "");
+    return m ? `${+m[2]}/${+m[3]}/${m[1].slice(2)}` : (iso || ""); };
+  const td = () => { const d = new Date(), p = n => String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+  async function call(path, method, json){
+    const res = await fetch(path, {method, headers: json ? {"Content-Type":"application/json"} : {},
+                                   body: json ? JSON.stringify(json) : undefined});
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  }
+  let pending = null;
+  function open(a, close, onChange){
+    pending = {a, close, onChange};
+    g('axTitle').textContent = close ? `Close out item ${a.label}` : `Add update to item ${a.label}`;
+    g('axDate').value = td(); g('axText').value = "";
+    g('axVisit').value = a.default_visit_no; g('axVisit').min = a.visit_no + 1;
+    g('axErr').textContent = "";
+    preview();
+    g('axSave').textContent = close ? "Close out" : "Save update";
+    g('axDlg').showModal();
+  }
+  function preview(){
+    if (!pending) return;
+    const t = g('axText').value.trim();
+    g('axPreview').textContent = pending.close
+      ? `Prints: Update ${sd(g('axDate').value)}: ${t ? t + " " : ""}${CLOSE}`
+      : (t ? `Prints: Update ${sd(g('axDate').value)}: ${t}` : "");
+  }
+  g('axText').oninput = preview; g('axDate').oninput = preview;
+  g('axCancel').onclick = () => g('axDlg').close();
+  g('axSave').onclick = async () => {
+    const {a, close, onChange} = pending;
+    try{
+      const entry = await call(`/api/visits/${a.pid}/entries/${a.photo_id}/updates`, "POST",
+        {date: g('axDate').value, text: g('axText').value, visit_no: g('axVisit').value, close});
+      g('axDlg').close(); onChange(entry);
+    }catch(err){ g('axErr').textContent = err.message; }
+  };
+  function render(el, a, onChange){
+    const closed = a.closed_visit_no;
+    el.innerHTML = `<div class="ax">
+      ${(a.updates || []).map((u, i) => `<div class="up"><div class="ut">
+          <b>Update ${sd(u.date)}:</b> ${e(u.text)}${u.closes ? ` <b>${CLOSE}</b>` : ""}
+          <span class="for">In the Site Visit ${u.visit_no} report</span></div>
+          <button data-i="${i}" title="Delete this update">&times;</button></div>`).join("")}
+      <div class="state">${closed
+        ? `Closed — prints for the last time in the Site Visit ${closed} report.`
+        : "Open — prints under Previous Action Items in every later report."}</div>
+      <div class="acts">${closed
+        ? `<button class="reopen">Reopen</button>`
+        : `<button class="add">+ Add update</button><button class="close">Close out</button>`}</div></div>`;
+    el.querySelectorAll('.up button').forEach(b => b.onclick = async () => {
+      if (!confirm("Delete this update?")) return;
+      try{ onChange(await call(`/api/visits/${a.pid}/entries/${a.photo_id}/updates/${b.dataset.i}`, "DELETE")); }
+      catch(err){ alert(err.message); }
+    });
+    const q = s => el.querySelector(s);
+    if (q('.add')) q('.add').onclick = () => open(a, false, onChange);
+    if (q('.close')) q('.close').onclick = () => open(a, true, onChange);
+    if (q('.reopen')) q('.reopen').onclick = async () => {
+      try{ onChange(await call(`/api/visits/${a.pid}/entries/${a.photo_id}/reopen`, "POST")); }
+      catch(err){ alert(err.message); }
+    };
+  }
+  return {render};
+})();
+</script>

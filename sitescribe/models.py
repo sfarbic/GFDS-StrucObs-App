@@ -95,6 +95,7 @@ class Observation:
     gps: GeoPoint | None = None
     taken_at: datetime = field(default_factory=datetime.now)
     number: int = 0           # photo number in the report (1, 2, 3...)
+    label: str = ""           # the printed ITEM number, e.g. "2.3"; "" = derive from number
     include: bool = True      # False = captured but left out of the report
     # Per-photo captions for observations with more than one photo, keyed by
     # the photo's file name (Path(photo).name, e.g. "003_abc_2.jpg"), never

@@ -10,7 +10,11 @@ other's shape. Routes never see the dataclasses; modules never see the JSON.
 
 Mapping (see INTEGRATION_PLAN.md):
 
-    photo entry 003_02            Observation, number 3 (the item), id "003_02"
+    photo entry 003_02            Observation, id "003_02"; number is the entry's
+                                  own report number (the item's for older
+                                  records), label "<visit>.<number>" when the
+                                  visit number is given
+    action                        action_item
     entry filename                photo_path and photos[0] (left out if missing)
     entry caption                 captions[filename]; description stays description
     importance                    severity
@@ -48,6 +52,7 @@ def to_project(data: dict, *, name: str, item_dir: Callable[[str], Path | str],
                plans_dir: Path | str, work_dir: Path | str,
                template: Path | str | None = None,
                visit_date: datetime | None = None,
+               visit_no: int | None = None,
                tz: tzinfo | None = None) -> Project:
     """Build a `Project` from a visit's JSON.
 
@@ -55,9 +60,13 @@ def to_project(data: dict, *, name: str, item_dir: Callable[[str], Path | str],
     folder the plan files live in. Plan pages are rendered into work_dir, which
     must outlive whatever uses the Project (the Word report reads the PNGs
     while it builds). template is the project's Word template, if any. Aware
-    timestamps are shown in tz when given.
+    timestamps are shown in tz when given. With visit_no, each entry is
+    labelled ITEM <visit_no>.<its number>.
     """
     observations = [obs for obs, _ in entries(data, item_dir, tz=tz)]
+    if visit_no:
+        for obs in observations:
+            obs.label = f"{visit_no}.{obs.number}"
     sheets = _sheets(data, observations, Path(plans_dir), Path(work_dir))
     project = Project(
         name=name,
@@ -104,7 +113,9 @@ def observation(item: dict, ph: dict, path: Path | None, *, folder: Path | None 
         severity=severity(details["importance"]),
         tags=[str(t) for t in (details["tags"] or [])],
         pin=pin(details["location"]),
-        number=item_number(item.get("item_id")),
+        number=(ph["number"] if isinstance(ph.get("number"), int) and ph["number"] > 0
+                else item_number(item.get("item_id"))),
+        action_item=str(ph.get("action") or "").strip(),
         include=details["include"] is not False,
         id=str(ph.get("photo_id") or item.get("item_id") or ""),
     )

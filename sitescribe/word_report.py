@@ -26,8 +26,9 @@ Two ways to build, picked by project.template_path:
   SOR_Template.docx: rendered with docxtpl, so the template decides the
   layout. The context it gets is listed in _template_context().
 
-Item numbering: observations sharing a number are entries of one item.
-A lone entry is "ITEM 3"; several are "ITEM 3.1", "ITEM 3.2", ...
+Item numbering: an observation with a label prints it ("ITEM 2.3", the web
+app's <visit>.<entry number>). Otherwise observations sharing a number are
+entries of one item: a lone entry is "ITEM 3"; several are "ITEM 3.1", ...
 
 Captions: the description is printed once, on the ITEM line. Under a photo
 only its own entry in Observation.captions is printed, so the description is
@@ -36,10 +37,15 @@ not repeated under every photo.
 Report options read from project.report_options (all optional):
     include_marked_plans  bool, default True   section 6
     include_photo_log     bool, default True   section 5
-    job_no, site_visit_no str                  header (no Project field yet)
+    job_no, site_visit_no, others_present
+                          str                  header (no Project field yet)
     stage_of_construction, structural_elements_observed
                           str                  tagged templates only; blank
                                                unless the engineer wrote them
+    previous_items        [{number, description, location, action,
+                            updates [{date, text, closed, line}], closed}]
+                                               earlier visits' action items,
+                                               after this visit's observations
 
 Large phone photos are downscaled to 1600 px on the long side before they go
 into the document, so a 60-photo report stays a few MB.
@@ -128,7 +134,7 @@ def _entries(project: Project) -> list[_Entry]:
     out = []
     for n, _, o in numbered:
         seen[n] = seen.get(n, 0) + 1
-        label = str(n) if counts[n] == 1 else f"{n}.{seen[n]}"
+        label = o.label or (str(n) if counts[n] == 1 else f"{n}.{seen[n]}")
         out.append(_Entry(o, label, _photo_list(o), _sheet_name(project, o)))
     return out
 
@@ -317,6 +323,7 @@ def _build_with_python_docx(project: Project, entries: list[_Entry],
         w.heading("Observations")
         for e in entries:
             w.observation(e)
+    w.previous_items(opts.get("previous_items") or [])
     w.action_items(entries)
     if opts.get("include_photo_log", True):
         w.photo_log(entries)
@@ -451,6 +458,8 @@ class _Writer:
         rows = [("Project:", project.name, "Date:", f"{project.visit_date:%m/%d/%y}"),
                 ("Address:", project.site_address, "Job No:", str(opts.get("job_no", "") or "")),
                 ("Engineer:", project.engineer, "Site Visit No:", str(opts.get("site_visit_no", "") or ""))]
+        if opts.get("others_present"):
+            rows.append(("Others Present:", str(opts["others_present"]), "", ""))
         widths = self._fit([1.0, 3.0, 1.1, 1.4])
         t = self.doc.add_table(rows=len(rows), cols=4)
         _col_widths(t, widths)
@@ -591,6 +600,27 @@ class _Writer:
         for row in t.rows:
             _cant_split(row)
         self.doc.add_paragraph().paragraph_format.space_after = Pt(0)
+
+    def previous_items(self, items: list[dict]):
+        """Earlier visits' action items: ITEM line, Action, then each update."""
+        if not items:
+            return
+        self.heading("Previous Action Items")
+        for it in items:
+            p = self._hanging(self.body(""))
+            p.add_run(f"ITEM {it.get('number', '')}").bold = True
+            p.add_run("\t" + (it.get("description") or ""))
+            p.paragraph_format.keep_with_next = True
+            if it.get("location"):
+                p = self._hanging(self.body(""))
+                p.add_run("Location:\t" + it["location"])
+                p.paragraph_format.keep_with_next = True
+            p = self._hanging(self.body(""))
+            p.add_run("Action:\t" + (it.get("action") or ""))
+            for u in it.get("updates") or []:
+                p = self._indented(self.body(""))
+                p.add_run(f"Update {u.get('date', '')}:").bold = True
+                p.add_run(" " + (u.get("text") or ""))
 
     # -- 5. action items -----------------------------------------------------
     def action_items(self, entries: list[_Entry]):
@@ -804,11 +834,14 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         "project_address": project.site_address,
         "observer": project.engineer,
         "site_visit_no": str(opts.get("site_visit_no", "") or ""),
+        "others_present": str(opts.get("others_present", "") or ""),
         "stage_of_construction": _paragraphs(opts.get("stage_of_construction") or ""),
         "structural_elements_observed": _paragraphs(opts.get("structural_elements_observed") or ""),
         "summary": summary,
         "items": items,
-        "previous_items": list(opts.get("previous_items") or []),
+        "previous_items": [dict(p, action_list=_action_parts(p.get("action", ""))[1],
+                                action=_action_parts(p.get("action", ""))[0])
+                           for p in opts.get("previous_items") or []],
         "action_items": [{"number": i["number"], "severity": i["severity"],
                           "action": i["action"], "action_list": i["action_list"]}
                          for i in items if i["action"] or i["action_list"]],

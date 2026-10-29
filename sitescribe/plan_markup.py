@@ -50,7 +50,11 @@ def sheet_image_with_pins(project: Project, sheet_id: str, out_png: Path) -> Pat
         draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius),
                      fill=SEVERITY_COLORS[obs.severity], outline="white",
                      width=max(2, radius // 6))
-        draw.text((cx, cy), str(obs.number), fill="white", font=font, anchor="mm")
+        # the printed ITEM number ("2.3") when there is one; longer labels get
+        # a smaller font so they stay inside the circle
+        text = obs.label or str(obs.number)
+        f = font if len(text) <= 2 else _font(round(radius * 1.1 * 2.4 / len(text)))
+        draw.text((cx, cy), text, fill="white", font=f, anchor="mm")
 
     _legend(draw, radius, font)
     image.save(out_png)

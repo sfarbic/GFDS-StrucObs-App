@@ -31,20 +31,43 @@ cloudflared tunnel --url http://localhost:5000
 
 Plain HTTP on a LAN IP **silently** blocks the microphone.
 
-## Reports (projects)
-
-The landing page at `/` lists every report and creates new ones. Opening one
-stores it in the session and sends you to `/capture`.
+## Projects and site visits
 
 ```
-data/projects.json            the index
-data/P-001/visit.json         that report's items + plans
-uploads/P-001/I-001/...       its photos and audio
+/                         New project · Existing project · gear → /settings
+/projects/new             name, number (required), address
+/projects                 every project by number, with search
+/projects/<J-001>         project info, + New site visit, visits, action items
+/projects/<J-001>/visits/new   visit no (latest + 1), date, by, others present,
+                          stage of construction, structural elements observed
+/visits/<P-001>/edit      the same fields for an existing visit
+/capture                  the open visit's items
+```
+
+A project is a "job" in the code (`J-###`, `data/jobs.json`); each site visit
+is a `P-###` record in `data/projects.json` with its `job_id`, so the item,
+photo and plan routes below are unchanged. A new visit copies the previous
+visit's plan sheets, without pins.
+
+```
+data/jobs.json                every project
+data/projects.json            every site visit
+data/P-001/visit.json         that visit's items + plans
+uploads/P-001/001/...         its photos and audio
 uploads/P-001/plans/...
 ```
 
-Leaving the name blank auto-names it `Site Visit <YYYY-MM-DD HH:MM>` (UTC).
-Reports are listed newest-edited first with item / photo / included counts.
+Each entry gets a report number when it is made and keeps it: entry n of
+Site Visit 2 prints as **ITEM 2.n**.
+
+### Action items
+
+An entry with an **Action** is an action item. From the items screen or the
+project page it takes dated updates (`+ Add update`) and a **Close out**, each
+aimed at a visit's report (default: the next one). A visit's report lists,
+under Previous Action Items, every earlier included action item that is still
+open or is closed out in that report, with its updates; the closing update
+ends "No further action required." and the item drops off after that report.
 
 A legacy single-visit `data/visit.json` is migrated into `P-001` on first
 start — files moved, stored URLs re-prefixed, original mtime preserved. It is
@@ -71,8 +94,8 @@ other requests.
 
 ## Report template (formatting only)
 
-There is **one template for the whole app**, set up once under **Report
-template** on the landing page and used by every report's export. It is stored
+There is **one template for the whole app**, set up once under the gear icon →
+**Settings** and used by every export. It is stored
 as `data/report_template.docx` (outside git) and only needs changing when the
 firm's template does.
 
@@ -162,7 +185,7 @@ server picks the **newest** imageless entry.
 | `PATCH /api/item/<id>` | nothing editable (the fields moved to the entry) |
 | `DELETE /api/item/<id>` | remove item + its uploads |
 | `POST /api/item/<id>/photo` | multipart `photo` (+ `photo_id` to name the target entry), or `inherit=keep\|clear` to add an entry |
-| `PATCH /api/item/<id>/photo/<pid>` | `caption, description, importance, tags, include, location` |
+| `PATCH /api/item/<id>/photo/<pid>` | `caption, description, action, importance, tags, include, location` |
 | `DELETE /api/item/<id>/photo/<pid>` | remove the entry and its files |
 | `POST /api/item/<id>/photo/<pid>/audio` | multipart `audio` + `transcribe=true\|false` |
 | `DELETE /api/item/<id>/photo/<pid>/audio/<clip_id>` | remove one recording |
@@ -176,11 +199,20 @@ server picks the **newest** imageless entry.
 |---|---|
 | `GET /` | landing page |
 | `GET /capture` | the capture UI (302 to `/` if no report is open) |
-| `GET /api/projects` | all reports + `current` |
-| `POST /api/projects` | create (blank name → auto date/time name) |
-| `POST /api/projects/<pid>/open` | open it for this session |
-| `PATCH /api/projects/<pid>` | rename |
-| `DELETE /api/projects/<pid>` | delete it and all its files |
+| `GET /api/jobs` | every project, sorted by number |
+| `POST /api/jobs` | create: `name`, `number`, `address` |
+| `GET /api/jobs/<jid>` | project, visits, action items, next visit defaults |
+| `PATCH` / `DELETE /api/jobs/<jid>` | edit / delete with all its visits |
+| `POST /api/jobs/<jid>/visits` | new visit (opens it) |
+| `GET` / `PATCH /api/visits/<pid>` | a visit's info |
+| `GET /api/visits/current` | the open visit and its project |
+| `POST /api/visits/<pid>/entries/<photo_id>/updates` | `date, text, visit_no, close` |
+| `DELETE /api/visits/<pid>/entries/<photo_id>/updates/<n>` | remove one (the final one reopens) |
+| `POST /api/visits/<pid>/entries/<photo_id>/reopen` | undo a close-out |
+| `GET /api/projects` | all visits + `current` |
+| `POST /api/projects` | a project of that name with Site Visit 1 |
+| `POST /api/projects/<pid>/open` | open a visit for this session |
+| `DELETE /api/projects/<pid>` | delete a visit and all its files |
 | `POST /api/projects/close` | close without opening another |
 
 Data routes return **409 `no project open`** when none is selected; the UI

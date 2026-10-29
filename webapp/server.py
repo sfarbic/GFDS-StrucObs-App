@@ -1,23 +1,30 @@
 """SiteScribe — structural site-visit observation tool.
 
-Single-file Flask backend. Projects hold a visit; a visit holds items;
-an item is only a numbering group for photo entries, and a photo *entry*
-is the observation itself — description, importance, tags, plan location,
-audio clips, include flag and (optionally) an image.
+Single-file Flask backend. A project (a "job" in the code: name, number,
+address) holds numbered site visits; a visit holds items; an item is only a
+grouping for photo entries, and a photo *entry* is the observation itself —
+description, action, importance, tags, plan location, audio clips, include
+flag and (optionally) an image.
 
-Ids: item "001", photo entry "001_01", audio clip "001_01_A01". An entry
-whose filename is None is a note taken before the picture.
+Ids: job "J-001", visit "P-001", item "001", photo entry "001_01", audio clip
+"001_01_A01". An entry whose filename is None is a note taken before the
+picture. Each entry also has a report number n, printed as ITEM <visit>.<n>.
 
 Storage:
-    data/projects.json            index of every project
-    data/<pid>/visit.json         that project's items + plans
-    data/report_template.docx     the Word report template every project uses, if any
+    data/jobs.json                every project (job)
+    data/projects.json            every site visit, with its job_id and visit info
+    data/<pid>/visit.json         that visit's items + plans
+    data/report_template.docx     the Word report template every export uses, if any
     data/report_template.json     its record: name, upload time, styles
-    uploads/<pid>/<item_id>/...   that project's photos + audio
-    uploads/<pid>/plans/...       that project's plan files
+    uploads/<pid>/<item_id>/...   that visit's photos + audio
+    uploads/<pid>/plans/...       that visit's plan files
 
-The open project lives in session["pid"], so the item/photo/audio/plan
+The open visit lives in session["pid"], so the item/photo/audio/plan
 routes keep their original URLs and resolve their paths against it.
+
+An entry with an Action is an action item. It collects dated updates, each
+aimed at a visit's report, and is closed out in one visit's report: there it
+prints for the last time under Previous Action Items.
 """
 
 from flask import (Flask, render_template, render_template_string, request,
@@ -51,7 +58,10 @@ for d in (DATA_DIR, UPLOADS):
 
 IMPORTANCE = ["Info", "Minor", "Major", "Critical", "Safety"]
 PID_RE = re.compile(r"^P-\d{3}$")
+JID_RE = re.compile(r"^J-\d{3}$")
 MAX_NAME = 120
+MAX_TEXT = 8000
+CLOSE_TEXT = "No further action required."
 MAX_ITEMS = 999      # item ids are 3 digits
 MAX_PHOTOS = 99      # photo seq is 2 digits
 INHERIT_MODES = ("keep", "clear", "new")
@@ -281,6 +291,10 @@ def load(pid=None):
             p.setdefault("location", None)
             p.setdefault("audio_clips", [])
             p.setdefault("created", it["created"])
+            p.setdefault("action", "")
+            p.setdefault("updates", [])
+            p.setdefault("closed_visit_no", None)
+    _backfill_numbers(data)
     if upgraded:
         # persist immediately: the upgrade already moved files on disk, so a
         # read must not leave the json describing the old layout
@@ -345,12 +359,32 @@ def next_photo_seq(item):
     return n
 
 
-def new_entry(item, *, description="", importance="Info", tags=None, location=None):
+def all_entries(data):
+    return [e for it in data["items"] for e in it.get("photos") or []]
+
+
+def next_number(data):
+    """The report number for a new entry. Numbers are kept for an entry's
+    life, so a previous action item prints with the same ITEM n later on."""
+    return max((e.get("number") or 0 for e in all_entries(data)), default=0) + 1
+
+
+def _backfill_numbers(data):
+    """Number entries written before numbers existed, in item then seq order."""
+    for it in sorted_items(data):
+        for e in sorted_entries(it):
+            if not isinstance(e.get("number"), int) or e["number"] < 1:
+                e["number"] = next_number(data)
+
+
+def new_entry(item, data, *, description="", importance="Info", tags=None,
+              location=None, action=""):
     """A fresh photo entry — an observation that may not have its image yet."""
     seq = next_photo_seq(item)
     return {
         "photo_id": f"{item['item_id']}_{seq:02d}",
         "seq": seq,
+        "number": next_number(data),
         "filename": None,
         "url": None,
         "caption": "",
@@ -361,6 +395,9 @@ def new_entry(item, *, description="", importance="Info", tags=None, location=No
         "location": dict(location) if location else None,
         "audio_clips": [],
         "created": _now(),
+        "action": action or "",
+        "updates": [],
+        "closed_visit_no": None,
     }
 
 
@@ -521,19 +558,506 @@ def auto_name(ts=None):
 
 
 def make_project(name, created=None, idx=None):
-    """Allocate a pid, build its directories and an empty visit, index it."""
+    """A new project holding one site visit, Site Visit 1. For callers that
+    only know a name; the UI makes the project first, then its visits."""
     own = idx is None
     if own:
         idx = load_index()
-    pid = next_pid(idx)
-    os.makedirs(project_data_dir(pid), exist_ok=True)
-    os.makedirs(plans_dir(pid), exist_ok=True)
-    entry = {"project_id": pid, "name": name, "created": created or _now()}
-    save(_blank(), pid)
-    idx["projects"].append(entry)
+    job = make_job(name)
+    entry = make_visit(job, {"visit_no": 1}, idx, created=created)
     if own:
         save_index(idx)
     return entry
+
+
+# ---------------------------------------------------------------- jobs
+#
+# What the UI calls a project is a "job" here, because the P-### records
+# (and their /api/projects routes) were projects before visits had a parent.
+# A job is its name, number and address; its site visits are the P-###
+# records whose job_id points at it.
+
+VISIT_TEXT = ("observed_by", "others_present", "stage_of_construction",
+              "structural_elements_observed")
+
+
+def valid_jid(jid):
+    return isinstance(jid, str) and JID_RE.match(jid) is not None
+
+
+def jobs_file():
+    # beside the visits, wherever DATA_DIR points
+    return os.path.join(DATA_DIR, "jobs.json")
+
+
+def load_jobs():
+    if not os.path.exists(jobs_file()):
+        return {"jobs": []}
+    try:
+        with open(jobs_file(), "r", encoding="utf-8") as fh:
+            jobs = json.load(fh)
+        if not isinstance(jobs, dict) or not isinstance(jobs.get("jobs"), list):
+            raise ValueError("jobs.json is not an index object")
+    except (OSError, ValueError) as exc:
+        print(f"[sitescribe] jobs.json unreadable ({exc}); starting empty", file=sys.stderr)
+        return {"jobs": []}
+    jobs["jobs"] = [j for j in jobs["jobs"] if isinstance(j, dict) and valid_jid(j.get("job_id"))]
+    return jobs
+
+
+def save_jobs(jobs):
+    tmp = jobs_file() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(jobs, fh, indent=2)
+    os.replace(tmp, jobs_file())
+
+
+def need_job(jobs, jid):
+    job = next((j for j in jobs["jobs"] if j.get("job_id") == jid), None) \
+        if valid_jid(jid) else None
+    if job is None:
+        raise ApiError(f"no such project: {jid}", 404)
+    return job
+
+
+def next_jid(jobs):
+    n = max((_trailing_num(j.get("job_id")) for j in jobs["jobs"]), default=0)
+    return f"J-{n + 1:03d}"
+
+
+def job_visits(idx, jid):
+    """The job's visits, oldest first."""
+    return sorted((p for p in idx["projects"] if p.get("job_id") == jid),
+                  key=lambda p: (_visit_no(p), p["project_id"]))
+
+
+def _visit_no(p):
+    try:
+        return int(p.get("visit_no") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def job_dict(job, idx):
+    visits = job_visits(idx, job["job_id"])
+    last = visits[-1] if visits else None
+    return {"job_id": job["job_id"], "name": job.get("name") or job["job_id"],
+            "number": job.get("number") or "", "address": job.get("address") or "",
+            "created": job.get("created"), "visits": len(visits),
+            "last_visit": ({"visit_no": _visit_no(last), "visit_date": last.get("visit_date")}
+                           if last else None)}
+
+
+def visit_dict(p):
+    out = project_dict(p)
+    out.update({"job_id": p.get("job_id"), "visit_no": _visit_no(p),
+                "visit_date": p.get("visit_date") or ""})
+    out.update({k: p.get(k) or "" for k in VISIT_TEXT})
+    return out
+
+
+def _clean_text(raw, limit=MAX_TEXT):
+    return ("" if raw is None else str(raw)).strip()[:limit]
+
+
+def _clean_date(raw):
+    """"YYYY-MM-DD", defaulting to today in the site's zone."""
+    text = _clean_text(raw, 10)
+    if not text:
+        return _local().strftime("%Y-%m-%d")
+    try:
+        return datetime.date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise ApiError("dates must be YYYY-MM-DD")
+
+
+def _clean_visit_no(raw):
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        raise ApiError("site visit number must be a whole number")
+    if n < 1:
+        raise ApiError("site visit number must be 1 or more")
+    return n
+
+
+def _job_fields(body, *, partial=False):
+    out = {}
+    if not partial or "name" in body:
+        out["name"] = clean_name(body.get("name"))
+    if not partial or "number" in body:
+        out["number"] = _clean_text(body.get("number"), 40)
+    if not partial or "address" in body:
+        out["address"] = _clean_text(body.get("address"), 300)
+    return out
+
+
+def _visit_fields(body, *, partial=False):
+    out = {}
+    if "visit_no" in body or not partial:
+        out["visit_no"] = _clean_visit_no(body.get("visit_no"))
+    if "visit_date" in body or not partial:
+        out["visit_date"] = _clean_date(body.get("visit_date"))
+    for k in VISIT_TEXT:
+        if k in body or not partial:
+            out[k] = _clean_text(body.get(k))
+    return out
+
+
+def make_job(name, number="", address=""):
+    jobs = load_jobs()
+    job = {"job_id": next_jid(jobs), "name": name, "number": number,
+           "address": address, "created": _now()}
+    jobs["jobs"].append(job)
+    save_jobs(jobs)
+    return job
+
+
+def make_visit(job, fields, idx, *, created=None):
+    """A new visit of the job: its directories, an empty visit.json with the
+    previous visit's plan sheets copied in (without pins), and its index
+    entry. The caller saves idx."""
+    previous = job_visits(idx, job["job_id"])
+    pid = next_pid(idx)
+    os.makedirs(project_data_dir(pid), exist_ok=True)
+    os.makedirs(plans_dir(pid), exist_ok=True)
+    data = _blank()
+    if previous:
+        data["plans"] = _copy_plans(previous[-1]["project_id"], pid)
+    save(data, pid)
+    fields = dict(fields)
+    fields.setdefault("visit_date", _local().strftime("%Y-%m-%d"))
+    for k in VISIT_TEXT:
+        fields.setdefault(k, "")
+    entry = {"project_id": pid, "name": f"Site Visit {fields['visit_no']}",
+             "created": created or _now(), "job_id": job["job_id"], **fields}
+    idx["projects"].append(entry)
+    return entry
+
+
+def _copy_plans(src_pid, dst_pid):
+    """The plan records of src_pid, their files copied to dst_pid. A plan
+    whose file is gone is left behind rather than copied as a dead record."""
+    out = []
+    for plan in load(src_pid)["plans"]:
+        src = os.path.join(plans_dir(src_pid), plan.get("file") or "")
+        if not plan.get("file") or not os.path.isfile(src):
+            continue
+        try:
+            shutil.copy2(src, os.path.join(plans_dir(dst_pid), plan["file"]))
+        except OSError as exc:
+            print(f"[sitescribe] could not copy plan {src}: {exc!r}", file=sys.stderr)
+            continue
+        out.append(dict(plan, url=f"/uploads/{dst_pid}/plans/{plan['file']}"))
+    return out
+
+
+def _job_sort_key(j):
+    """By project number, numbers compared as numbers; no number goes last."""
+    num = j.get("number") or ""
+    parts = [(0, int(t), "") if t.isdigit() else (1, 0, t.lower())
+             for t in re.findall(r"\d+|\D+", num)]
+    return (not num, parts, (j.get("name") or "").lower())
+
+
+@app.route("/api/jobs")
+@require_pin
+def api_jobs():
+    with _lock:
+        idx = load_index()
+        out = [job_dict(j, idx) for j in load_jobs()["jobs"]]
+    out.sort(key=_job_sort_key)
+    return jsonify(jobs=out)
+
+
+@app.route("/api/jobs", methods=["POST"])
+@require_pin
+def api_job_create():
+    fields = _job_fields(request.get_json(silent=True) or {})
+    if not fields["number"]:
+        raise ApiError("project number required")
+    with _lock:
+        job = make_job(**fields)
+        return jsonify(job_dict(job, load_index()))
+
+
+def _job_page(jid):
+    """Everything the project page shows: the job, its visits (newest first),
+    its action items and the defaults for the next visit."""
+    idx = load_index()
+    job = need_job(load_jobs(), jid)
+    visits = job_visits(idx, jid)
+    last = visits[-1] if visits else None
+    return {
+        "job": job_dict(job, idx),
+        "visits": [visit_dict(p) for p in reversed(visits)],
+        "action_items": action_items(idx, jid),
+        "next_visit_no": max((_visit_no(p) for p in visits), default=0) + 1,
+        "observed_by": (last or {}).get("observed_by") or "",
+    }
+
+
+@app.route("/api/jobs/<jid>")
+@require_pin
+def api_job(jid):
+    with _lock:
+        return jsonify(_job_page(jid))
+
+
+@app.route("/api/jobs/<jid>", methods=["PATCH"])
+@require_pin
+def api_job_patch(jid):
+    fields = _job_fields(request.get_json(silent=True) or {}, partial=True)
+    if "number" in fields and not fields["number"]:
+        raise ApiError("project number required")
+    with _lock:
+        jobs = load_jobs()
+        job = need_job(jobs, jid)
+        job.update(fields)
+        save_jobs(jobs)
+        return jsonify(job_dict(job, load_index()))
+
+
+@app.route("/api/jobs/<jid>", methods=["DELETE"])
+@require_pin
+def api_job_delete(jid):
+    with _lock:
+        jobs = load_jobs()
+        job = need_job(jobs, jid)
+        idx = load_index()
+        for p in job_visits(idx, jid):
+            idx["projects"].remove(p)
+            shutil.rmtree(project_data_dir(p["project_id"]), ignore_errors=True)
+            shutil.rmtree(project_uploads(p["project_id"]), ignore_errors=True)
+            if session.get("pid") == p["project_id"]:
+                session.pop("pid", None)
+        save_index(idx)
+        jobs["jobs"].remove(job)
+        save_jobs(jobs)
+    return jsonify(ok=True)
+
+
+@app.route("/api/jobs/<jid>/visits", methods=["POST"])
+@require_pin
+def api_visit_create(jid):
+    fields = _visit_fields(request.get_json(silent=True) or {})
+    with _lock:
+        job = need_job(load_jobs(), jid)
+        idx = load_index()
+        entry = make_visit(job, fields, idx)
+        save_index(idx)
+        out = visit_dict(entry)
+    session["pid"] = entry["project_id"]
+    return jsonify(out)
+
+
+def _need_visit(idx, pid):
+    p = need_project(idx, pid)
+    if not p.get("job_id"):
+        raise ApiError(f"site visit {pid} belongs to no project", 404)
+    return p
+
+
+@app.route("/api/visits/current")
+@require_pin
+@require_project
+def api_visit_current():
+    with _lock:
+        idx = load_index()
+        p = need_project(idx, current_pid())
+        job = next((j for j in load_jobs()["jobs"] if j["job_id"] == p.get("job_id")), None)
+        return jsonify(visit=visit_dict(p), job=job_dict(job, idx) if job else None)
+
+
+@app.route("/api/visits/<pid>")
+@require_pin
+def api_visit_get(pid):
+    with _lock:
+        idx = load_index()
+        p = _need_visit(idx, pid)
+        return jsonify(visit=visit_dict(p),
+                       job=job_dict(need_job(load_jobs(), p["job_id"]), idx))
+
+
+@app.route("/api/visits/<pid>", methods=["PATCH"])
+@require_pin
+def api_visit_patch(pid):
+    fields = _visit_fields(request.get_json(silent=True) or {}, partial=True)
+    with _lock:
+        idx = load_index()
+        p = _need_visit(idx, pid)
+        p.update(fields)
+        if "visit_no" in fields:
+            p["name"] = f"Site Visit {fields['visit_no']}"
+        save_index(idx)
+        return jsonify(visit_dict(p))
+
+
+# ---------------------------------------------------------------- action items
+
+def find_entry(data, photo_id):
+    for it in data["items"]:
+        for e in it.get("photos") or []:
+            if e.get("photo_id") == photo_id:
+                return it, e
+    raise ApiError(f"no such entry: {photo_id}", 404)
+
+
+def entry_label(visit_no, entry):
+    return f"{visit_no}.{entry.get('number') or 0}"
+
+
+def action_items(idx, jid):
+    """Every entry in the job's visits that has an Action, oldest visit first."""
+    out = []
+    visits = job_visits(idx, jid)
+    latest = max((_visit_no(p) for p in visits), default=0)
+    for p in visits:
+        vno = _visit_no(p)
+        data = load(p["project_id"])
+        for it in sorted_items(data):
+            for e in sorted_entries(it):
+                if not (e.get("action") or "").strip():
+                    continue
+                out.append({
+                    "pid": p["project_id"], "visit_no": vno, "photo_id": e["photo_id"],
+                    "number": e.get("number"), "label": entry_label(vno, e),
+                    "description": e.get("description") or "", "action": e["action"],
+                    "include": e.get("include", True), "updates": e.get("updates") or [],
+                    "closed_visit_no": e.get("closed_visit_no"),
+                    "default_visit_no": max(latest, vno + 1),
+                })
+    out.sort(key=lambda a: (a["visit_no"], a["number"] or 0))
+    return out
+
+
+def _action_target(idx, p, body):
+    """The visit whose report an update is for: as given, else the next
+    report this item can appear in."""
+    vno = _visit_no(p)
+    latest = max((_visit_no(q) for q in job_visits(idx, p.get("job_id"))), default=0)
+    target = (_clean_visit_no(body["visit_no"]) if body.get("visit_no") not in (None, "")
+              else max(latest, vno + 1))
+    if target <= vno:
+        raise ApiError(f"an update to item {vno}.x appears in a later report: "
+                       f"Site Visit {vno + 1} or after")
+    return target
+
+
+@app.route("/api/visits/<pid>/entries/<photo_id>/updates", methods=["POST"])
+@require_pin
+def api_action_update(pid, photo_id):
+    """Add a dated update to an action item; with close=true it is the final
+    one, and the item prints for the last time in that update's report."""
+    body = request.get_json(silent=True) or {}
+    text = _clean_text(body.get("text"))
+    close = bool(body.get("close"))
+    if not text and not close:
+        raise ApiError("update text required")
+    with _lock:
+        idx = load_index()
+        p = _need_visit(idx, pid)
+        data = load(pid)
+        _, e = find_entry(data, photo_id)
+        if not (e.get("action") or "").strip():
+            raise ApiError("only an item with an Action can take updates")
+        if close and e.get("closed_visit_no"):
+            raise ApiError(f"already closed in Site Visit {e['closed_visit_no']}")
+        target = _action_target(idx, p, body)
+        e.setdefault("updates", []).append({
+            "date": _clean_date(body.get("date")), "text": text,
+            "visit_no": target, "closes": close, "created": _now()})
+        if close:
+            e["closed_visit_no"] = target
+        save(data, pid)
+        return jsonify(e)
+
+
+@app.route("/api/visits/<pid>/entries/<photo_id>/updates/<int:n>", methods=["DELETE"])
+@require_pin
+def api_action_update_delete(pid, photo_id, n):
+    with _lock:
+        _need_visit(load_index(), pid)
+        data = load(pid)
+        _, e = find_entry(data, photo_id)
+        updates = e.get("updates") or []
+        if not 0 <= n < len(updates):
+            raise ApiError(f"no such update: {n}", 404)
+        if updates.pop(n).get("closes"):
+            e["closed_visit_no"] = None   # removing the final update reopens it
+        save(data, pid)
+        return jsonify(e)
+
+
+@app.route("/api/visits/<pid>/entries/<photo_id>/reopen", methods=["POST"])
+@require_pin
+def api_action_reopen(pid, photo_id):
+    """Undo a close-out; the final update stays as an ordinary update."""
+    with _lock:
+        _need_visit(load_index(), pid)
+        data = load(pid)
+        _, e = find_entry(data, photo_id)
+        e["closed_visit_no"] = None
+        for u in e.get("updates") or []:
+            u["closes"] = False
+        save(data, pid)
+        return jsonify(e)
+
+
+def _short_date(iso):
+    try:
+        d = datetime.date.fromisoformat(str(iso))
+    except ValueError:
+        return str(iso or "")
+    return f"{d.month}/{d.day}/{d:%y}"
+
+
+def previous_items(idx, entry):
+    """Previous Action Items for this visit's report: every included action
+    item from an earlier visit that is still open, or that is closed out in
+    this report (its last appearance), with the updates aimed at this report
+    or an earlier one."""
+    vno = _visit_no(entry)
+    out = []
+    for p in job_visits(idx, entry.get("job_id")):
+        pno = _visit_no(p)
+        if pno >= vno:
+            continue
+        data = load(p["project_id"])
+        plans = {pl["plan_id"]: pl for pl in data["plans"]}
+        for it in sorted_items(data):
+            for e in sorted_entries(it):
+                action = (e.get("action") or "").strip()
+                closed = e.get("closed_visit_no")
+                if not action or not e.get("include", True) or (closed and closed < vno):
+                    continue
+                updates = []
+                for u in e.get("updates") or []:
+                    if (u.get("visit_no") or 0) > vno:
+                        continue
+                    closes = bool(u.get("closes"))
+                    text = " ".join(t for t in ((u.get("text") or "").strip(),
+                                                CLOSE_TEXT if closes else "") if t)
+                    updates.append({"date": _short_date(u.get("date")), "text": text,
+                                    "closed": closes,
+                                    "line": f"Update {_short_date(u.get('date'))}: {text}"})
+                out.append({"number": entry_label(pno, e), "visit_no": pno,
+                            "description": (e.get("description") or "").strip(),
+                            "location": _plan_place(plans, e.get("location")),
+                            "action": action, "updates": updates,
+                            "closed": bool(closed and closed == vno)})
+    out.sort(key=lambda a: (a["visit_no"], int(a["number"].split(".")[1])))
+    return out
+
+
+def _plan_place(plans, loc):
+    """"S-201" or "S-201, page 2" for a pinned entry, "" otherwise."""
+    if not loc or loc.get("plan_id") not in plans:
+        return ""
+    plan = plans[loc["plan_id"]]
+    label = re.sub(r"\.(pdf|png|jpe?g|heic)$", "", str(plan.get("name") or plan.get("file") or ""),
+                   flags=re.IGNORECASE)
+    return label if (plan.get("pages") or 1) == 1 else f"{label}, page {loc.get('page') or 1}"
 
 
 @app.route("/api/projects")
@@ -608,7 +1132,49 @@ def api_project_delete(pid):
 @app.route("/")
 @require_pin
 def index():
-    return render_template("landing.html")
+    return render_template("home.html")
+
+
+@app.route("/settings")
+@require_pin
+def settings_page():
+    return render_template("settings.html")
+
+
+@app.route("/projects")
+@require_pin
+def projects_page():
+    return render_template("projects.html")
+
+
+@app.route("/projects/new")
+@require_pin
+def project_new_page():
+    return render_template("project_new.html")
+
+
+@app.route("/projects/<jid>")
+@require_pin
+def project_page(jid):
+    with _lock:
+        need_job(load_jobs(), jid)
+    return render_template("project.html", jid=jid)
+
+
+@app.route("/projects/<jid>/visits/new")
+@require_pin
+def visit_new_page(jid):
+    with _lock:
+        need_job(load_jobs(), jid)
+    return render_template("visit.html", jid=jid, pid=None)
+
+
+@app.route("/visits/<pid>/edit")
+@require_pin
+def visit_edit_page(pid):
+    with _lock:
+        p = _need_visit(load_index(), pid)
+    return render_template("visit.html", jid=p["job_id"], pid=pid)
 
 
 @app.route("/capture")
@@ -646,7 +1212,7 @@ def api_item_create():
         item = {"item_id": next_item_id(data), "created": _now(), "photos": []}
         # an item is a numbering group; it opens with one entry waiting for
         # an image, so a note can be recorded before the picture is taken
-        item["photos"].append(new_entry(item))
+        item["photos"].append(new_entry(item, data))
         data["items"].append(item)
         os.makedirs(item_dir(item["item_id"]), exist_ok=True)
         save(data)
@@ -738,7 +1304,8 @@ def _seed_from_previous(item, mode):
     return {"description": last.get("description") or "",
             "importance": last.get("importance") or "Info",
             "tags": last.get("tags") or [],
-            "location": last.get("location")}
+            "location": last.get("location"),
+            "action": last.get("action") or ""}
 
 
 def _attach_photo(entry, f, item_id, pid):
@@ -786,7 +1353,7 @@ def api_photo_add(item_id):
                 entry = next((e for e in reversed(sorted_entries(item))
                               if not e.get("filename")), None)
         if entry is None:
-            entry = new_entry(item, **_seed_from_previous(item, mode))
+            entry = new_entry(item, data, **_seed_from_previous(item, mode))
             item.setdefault("photos", []).append(entry)
         if f and f.filename:
             _attach_photo(entry, f, item_id, pid)
@@ -816,6 +1383,8 @@ def api_photo_patch(item_id, photo_id):
             entry["include"] = bool(body["include"])
         if "location" in body:
             entry["location"] = _clean_location(body["location"])
+        if "action" in body:
+            entry["action"] = "" if body["action"] is None else str(body["action"])[:MAX_TEXT]
         save(data)
         return jsonify(entry)
 
@@ -1102,7 +1671,12 @@ def _sibling_module(name):
 
 
 def _visit_date(entry):
-    """The project's creation time in the site's zone, else now."""
+    """The visit's date, else its creation time in the site's zone, else now."""
+    try:
+        d = datetime.date.fromisoformat(str(entry.get("visit_date")))
+        return datetime.datetime(d.year, d.month, d.day, tzinfo=LOCAL_TZ)
+    except ValueError:
+        pass
     try:
         when = datetime.datetime.fromisoformat(str(entry.get("created")).replace("Z", "+00:00"))
     except (TypeError, ValueError):
@@ -1132,6 +1706,7 @@ def _module_report(data, pid, entry):
                 work_dir=Path(tmp) / "plans",
                 template=template_path() if has_template() else None,
                 visit_date=_visit_date(entry),
+                visit_no=data.get("visit_no"),
                 tz=LOCAL_TZ,
             )
             out = word_report.build_report(project, Path(tmp) / "site_visit_report.docx")
@@ -1330,9 +1905,33 @@ def _notice_headers(notice):
 def _export_snapshot(pid):
     """The visit and its index entry, read under the lock. The report itself
     is built outside it: rendering plans and photos takes seconds on a big
-    visit and must not stall every other request meanwhile."""
+    visit and must not stall every other request meanwhile.
+
+    The visit comes back with what the report header needs folded in (the
+    project's name, number and address, the visit's details, the previous
+    action items), and the entry's name is the project's."""
     with _lock:
-        return load(pid), (find_project(load_index(), pid) or {})
+        idx = load_index()
+        data = load(pid)
+        entry = dict(find_project(idx, pid) or {})
+        job = next((j for j in load_jobs()["jobs"] if j["job_id"] == entry.get("job_id")), None)
+        if job is None:
+            return data, entry
+        vno = _visit_no(entry)
+        data["site_address"] = job.get("address") or ""
+        data["engineer"] = entry.get("observed_by") or ""
+        data["visit_no"] = vno
+        data["report_options"] = {
+            "job_no": job.get("number") or "",
+            "site_visit_no": str(vno or ""),
+            "others_present": entry.get("others_present") or "",
+            "stage_of_construction": entry.get("stage_of_construction") or "",
+            "structural_elements_observed": entry.get("structural_elements_observed") or "",
+            "previous_items": previous_items(idx, entry),
+        }
+        entry["name"] = job.get("name") or entry.get("name")
+        entry["file_name"] = f"{entry['name']} - Site Visit {vno}"
+        return data, entry
 
 
 @app.route("/api/export/docx")
@@ -1391,7 +1990,7 @@ def _build_bundle(pid):
         report, notice = _report_buffer(data, pid, entry)
     except ImportError:
         raise ImportError("python-docx not installed") from None
-    name = entry.get("name") or pid
+    name = entry.get("file_name") or entry.get("name") or pid
     try:
         bundle = _export_bundle()
     except (ImportError, OSError) as exc:
