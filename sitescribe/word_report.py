@@ -6,10 +6,11 @@ Library: python-docx (docxtpl only for Jinja-tagged firm templates)
 Report sections, in order:
     1. Header: project, address, engineer, visit date
     2. Summary                       (project.summary)
-    3. Plan sheets with color-coded pins   (plan_markup.sheet_image_with_pins)
-    4. Observations: photo + caption + severity + tags, one per block
-    5. Action items table            (observations with an action_item)
-    6. Photo log: number, time, sheet, severity, short description
+    3. Observations: photo + caption + severity + tags, one per block
+    4. Action items table            (observations with an action_item)
+    5. Photo log: number, time, sheet, severity, short description
+    6. Plan sheets with color-coded pins, at the back
+                                     (plan_markup.sheet_image_with_pins)
 
 Two ways to build, picked by project.template_path:
 
@@ -33,8 +34,8 @@ only its own entry in Observation.captions is printed, so the description is
 not repeated under every photo.
 
 Report options read from project.report_options (all optional):
-    include_marked_plans  bool, default True   section 3
-    include_photo_log     bool, default True   section 6
+    include_marked_plans  bool, default True   section 6
+    include_photo_log     bool, default True   section 5
     job_no, site_visit_no str                  header (no Project field yet)
     stage_of_construction, structural_elements_observed
                           str                  tagged templates only; blank
@@ -312,9 +313,6 @@ def _build_with_python_docx(project: Project, entries: list[_Entry],
         w.heading("Summary")
         for para in _paragraphs(project.summary):
             w.body(para)
-    if opts.get("include_marked_plans", True):
-        with tempfile.TemporaryDirectory() as tmp:
-            w.plan_sheets(project, entries, Path(tmp))
     if entries:
         w.heading("Observations")
         for e in entries:
@@ -322,6 +320,9 @@ def _build_with_python_docx(project: Project, entries: list[_Entry],
     w.action_items(entries)
     if opts.get("include_photo_log", True):
         w.photo_log(entries)
+    if opts.get("include_marked_plans", True):
+        with tempfile.TemporaryDirectory() as tmp:
+            w.plan_sheets(project, entries, Path(tmp))
 
     doc.core_properties.title = f"Site Visit Report - {project.name}"
     _zero_image_padding(doc)
