@@ -1,4 +1,4 @@
-# SiteScribe
+# GFDS-StrucObs-App
 
 **Walk the site with a phone, capture observations, get a finished site visit report at the end of the day.**
 
