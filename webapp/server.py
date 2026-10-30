@@ -1036,8 +1036,10 @@ def previous_items(idx, entry):
                     if (u.get("visit_no") or 0) > vno:
                         continue
                     closes = bool(u.get("closes"))
-                    text = " ".join(t for t in ((u.get("text") or "").strip(),
-                                                CLOSE_TEXT if closes else "") if t)
+                    note = (u.get("text") or "").strip()
+                    if note and note[-1] not in ".!?":
+                        note += "."      # so the close-out reads as its own sentence
+                    text = " ".join(t for t in (note, CLOSE_TEXT if closes else "") if t)
                     updates.append({"date": _short_date(u.get("date")), "text": text,
                                     "closed": closes,
                                     "line": f"Update {_short_date(u.get('date'))}: {text}"})

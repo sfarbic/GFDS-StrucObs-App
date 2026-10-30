@@ -149,8 +149,8 @@ def test_action_item_prints_until_its_close_out_report(client):
     _visit(client, jid, 2)
     text = _report(client)
     assert "Previous Action Items" in text and "ITEM 1.1" in text
-    assert "Update 10/20/26: Headers on order." in text
-    assert ("Update 10/29/26: Headers installed per 4/S8.1. No further action required."
+    assert "Update:	10/20/26 – Headers on order." in text
+    assert ("Update:	10/29/26 – Headers installed per 4/S8.1. No further action required."
             in text)
     assert "Observation only" not in text
 
@@ -168,8 +168,8 @@ def test_open_items_keep_printing_and_reopen_undoes_a_close(client):
     _visit(client, jid, 3)
     assert "ITEM 1.1" in _report(client)          # still open in visit 3
 
-    client.post(base + "/updates", json={"text": "Done.", "close": True, "visit_no": 3})
-    assert "No further action required." in _report(client)
+    client.post(base + "/updates", json={"text": "Done", "close": True, "visit_no": 3})
+    assert "Done. No further action required." in _report(client)   # period added
     r = client.post(base + "/reopen")
     assert r.get_json()["closed_visit_no"] is None
     text = _report(client)

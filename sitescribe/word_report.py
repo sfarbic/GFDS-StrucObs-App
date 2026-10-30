@@ -618,9 +618,8 @@ class _Writer:
             p = self._hanging(self.body(""))
             p.add_run("Action:\t" + (it.get("action") or ""))
             for u in it.get("updates") or []:
-                p = self._indented(self.body(""))
-                p.add_run(f"Update {u.get('date', '')}:").bold = True
-                p.add_run(" " + (u.get("text") or ""))
+                p = self._hanging(self.body(""))
+                p.add_run(f"Update:\t{u.get('date', '')} – {u.get('text') or ''}")
 
     # -- 5. action items -----------------------------------------------------
     def action_items(self, entries: list[_Entry]):
