@@ -83,10 +83,17 @@ def _entries(data: dict, item_dir):
         for ph in entries:
             if ph.get("include", item.get("include", True)) is False:
                 continue
-            path = Path(item_dir(item["item_id"])) / ph["filename"] if ph.get("filename") else None
-            if path is not None and not path.exists():
-                path = None
-            yield _observation(item, ph, path), path
+            # an entry may hold several photos; each goes in the zip, and the
+            # pin they share is drawn once
+            folder = Path(item_dir(item["item_id"]))
+            names = ([im.get("filename") for im in ph["images"]] if ph.get("images") is not None
+                     else [ph.get("filename")])
+            paths = [folder / n for n in names if n and (folder / n).exists()]
+            for path in paths or [None]:
+                obs = _observation(item, ph, path)
+                if data.get("visit_no"):        # pins read like the report: 2.3
+                    obs.label = f"{data['visit_no']}.{obs.number}"
+                yield obs, path
 
 
 def _observation(item: dict, ph: dict, path: Path | None) -> Observation:
@@ -101,7 +108,10 @@ def _observation(item: dict, ph: dict, path: Path | None) -> Observation:
         severity=_severity(details["importance"]),
         tags=list(details["tags"] or []),
         pin=_pin(details["location"]),
-        number=_number(item.get("item_id")),
+        number=(ph["number"] if isinstance(ph.get("number"), int) and ph["number"] > 0
+                else _number(item.get("item_id"))),
+        action_item=str(ph.get("action") or "").strip(),
+        closed=bool(ph.get("closed_visit_no")),
         id=str(ph.get("photo_id") or item.get("item_id")),
     )
     taken = _parse_time(ph.get("created") or item.get("created"))

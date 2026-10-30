@@ -11,38 +11,70 @@
 .meta{color:var(--mut);font-size:13.5px}
 #status{text-align:center;font-size:13px;min-height:18px;margin-top:10px}
 #status.ok{color:var(--ok)}#status.bad{color:var(--bad)}#status.warn{color:var(--warn)}
+.multi{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 14px;
+  margin-bottom:12px}
+.multi .hd{font-size:14px}
+.multi .ds{color:var(--mut);font-size:12.5px;margin:2px 0 10px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.thumbs{display:flex;flex-wrap:wrap;gap:10px}
+.thumbs label{position:relative;width:96px;height:96px;border-radius:9px;overflow:hidden;
+  border:2px solid var(--line);background:var(--card2);cursor:pointer}
+.thumbs label:has(input:checked){border-color:var(--accent)}
+.thumbs img{width:100%;height:100%;object-fit:contain;display:block}
+.thumbs input{position:absolute;top:5px;left:5px;width:20px;height:20px;accent-color:var(--accent)}
+.thumbs label:not(:has(input:checked)) img{opacity:.35}
+.lay{display:flex;gap:8px;margin-top:10px}
+.lay label{flex:1;display:flex;align-items:center;gap:7px;font-size:13px;padding:9px 10px;
+  border:1px solid var(--line);border-radius:9px;cursor:pointer;background:var(--bg)}
+.lay label:has(input:checked){border-color:var(--accent);font-weight:600}
+.lay input{accent-color:var(--accent);margin:0}
 {% endblock %}
 {% block content %}
 <div class="top">
-  <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
-  <div class="t"><b>Generate report</b><small id="sub">&nbsp;</small></div>
+  <a class="back" href="/projects/{{ jid }}" id="back" title="Project">&lsaquo;</a>
+  <div class="t"><b id="title">Generate report</b><small id="sub">&nbsp;</small></div>
 </div>
 
-<div class="sec">
-  <h2>Report for</h2>
-  <div id="visits"></div>
-</div>
+<div id="step1">
+  <div class="sec">
+    <h2>Report for</h2>
+    <div id="visits"></div>
+  </div>
 
-<div class="sec">
-  <button class="wide" id="btnGo" disabled>Generate report</button>
-  <div id="status"></div>
-  <div class="hint" style="text-align:center">Downloads a zip with the Word report, the photos and the marked-up plans.</div>
-</div>
+  <div class="sec">
+    <button class="wide" id="btnGo" disabled>Generate report</button>
+    <div class="hint" style="text-align:center">Downloads a zip with the Word report, the photos and the marked-up plans.</div>
+  </div>
 
-<div class="sec">
-  <h2>Open action items</h2>
-  <div class="card">
-    <div id="openInfo" class="meta">Loading…</div>
-    <button class="ghost wide" id="btnOpen" style="margin-top:12px" disabled>Generate open items report</button>
-    <div class="hint">A Word table of every action item not yet closed out, from all site
-      visits, with its updates.</div>
+  <div class="sec">
+    <h2>Open action items</h2>
+    <div class="card">
+      <div id="openInfo" class="meta">Loading…</div>
+      <button class="ghost wide" id="btnOpen" style="margin-top:12px" disabled>Generate open items report</button>
+      <div class="hint">A Word table of every action item not yet closed out, from all site
+        visits, with its updates.</div>
+    </div>
   </div>
 </div>
+
+<div id="step2" hidden>
+  <div class="sec">
+    <h2>Items with more than one photo</h2>
+    <div class="hint" style="margin:-4px 0 12px">Tick the photos to include and choose how they sit
+      in the report.</div>
+    <div id="multis"></div>
+  </div>
+  <div class="sec row">
+    <button class="ghost" id="btnBack">Back</button>
+    <button id="btnBuild">Generate report</button>
+  </div>
+</div>
+<div id="status"></div>
 {% endblock %}
 {% block script %}
 <script>
 const JID = {{ jid|tojson }};
-let page = null;
+let page = null, visit = null, multis = [];
 const status = (t, c="") => { $('status').className = c; $('status').textContent = t; };
 
 /* what Previous Action Items will print in this visit's report */
@@ -71,24 +103,67 @@ function render(){
   $('btnGo').disabled = false;
 }
 
+/* step 1 -> step 2 only when some item has several photos */
 $('btnGo').onclick = async () => {
-  const v = selected(), btn = $('btnGo');
-  if (!v || btn.disabled) return;
-  if (!v.included && !previousFor(v).length &&
-      !confirm(`Site Visit ${v.visit_no} has no items in the report yet.\n\nGenerate it anyway?`)) return;
+  visit = selected();
+  if (!visit || $('btnGo').disabled) return;
+  if (!visit.included && !previousFor(visit).length &&
+      !confirm(`Site Visit ${visit.visit_no} has no items in the report yet.\n\nGenerate it anyway?`)) return;
+  try{ multis = (await api(`/api/visits/${visit.project_id}/photo-choices`)).items; }
+  catch(err){ return status(err.message, "bad"); }
+  if (!multis.length) return build(null, $('btnGo'));
+  showStep2();
+};
+
+function showStep2(){
+  $('multis').innerHTML = multis.map(m => `
+    <div class="multi" data-id="${m.photo_id}">
+      <div class="hd"><span class="num">ITEM ${m.label}</span>
+        <span class="meta"> · ${m.images.length} photos</span></div>
+      <div class="ds">${esc(m.description) || "&nbsp;"}</div>
+      <div class="thumbs">${m.images.map(im => `
+        <label><input type="checkbox" value="${im.image_id}" checked>
+          <img src="${im.thumb_url}" alt="" loading="lazy"></label>`).join("")}</div>
+      <div class="lay">
+        <label><input type="radio" name="lay_${m.photo_id}" value="side" checked> Side by side</label>
+        <label><input type="radio" name="lay_${m.photo_id}" value="stack"> Top to bottom</label>
+      </div></div>`).join("");
+  $('title').textContent = `Site Visit ${visit.visit_no} report`;
+  $('step1').hidden = true; $('step2').hidden = false; status("");
+  scrollTo(0, 0);
+}
+$('btnBack').onclick = () => {
+  $('title').textContent = "Generate report";
+  $('step2').hidden = true; $('step1').hidden = false; status("");
+};
+
+function choices(){
+  const out = {};
+  document.querySelectorAll('#multis .multi').forEach(div => {
+    out[div.dataset.id] = {
+      images: [...div.querySelectorAll('.thumbs input:checked')].map(i => i.value),
+      layout: div.querySelector(`input[name="lay_${div.dataset.id}"]:checked`).value,
+    };
+  });
+  return out;
+}
+$('btnBuild').onclick = () => build(choices(), $('btnBuild'));
+
+async function build(photos, btn){
+  if (btn.disabled) return;
   // two steps so a phone shows progress and a real error: build, then download
-  btn.disabled = true; btn.textContent = "Building…";
-  status(`Building the Site Visit ${v.visit_no} report… a big visit can take a minute.`, "warn");
+  btn.disabled = true; const label = btn.textContent; btn.textContent = "Building…";
+  status(`Building the Site Visit ${visit.visit_no} report… a big visit can take a minute.`, "warn");
   try{
-    await api(`/api/projects/${v.project_id}/open`, {method:"POST"});
-    const r = await api('/api/export/build', {method:"POST"});
+    await api(`/api/projects/${visit.project_id}/open`, {method:"POST"});
+    const r = await api('/api/export/build', {method:"POST", json: {photos}});
     const mb = (r.bytes/1048576).toFixed(1);
     location.href = r.url;
     if (r.notice) status(`Report ready (${mb} MB), downloading — note: ${r.notice}.`, "warn");
     else status(`Report ready (${mb} MB), downloading…`, "ok");
   }catch(err){ status("Report failed: " + err.message, "bad"); }
-  finally{ btn.disabled = false; btn.textContent = "Generate report"; }
-};
+  finally{ btn.disabled = false; btn.textContent = label; }
+}
 
 const openItems = () => page.action_items.filter(a => a.include && !a.closed_visit_no);
 function renderOpen(){

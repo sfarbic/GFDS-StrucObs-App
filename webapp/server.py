@@ -294,6 +294,11 @@ def load(pid=None):
             p.setdefault("action", "")
             p.setdefault("updates", [])
             p.setdefault("closed_visit_no", None)
+            if not isinstance(p.get("images"), list):
+                # one photo per entry before entries held several
+                p["images"] = ([{"image_id": f"{p['photo_id']}_P01", "filename": p["filename"],
+                                 "url": p.get("url"), "thumb_url": None,
+                                 "created": p["created"]}] if p.get("filename") else [])
     _backfill_numbers(data)
     if upgraded:
         # persist immediately: the upgrade already moved files on disk, so a
@@ -398,6 +403,7 @@ def new_entry(item, data, *, description="", importance="Info", tags=None,
         "action": action or "",
         "updates": [],
         "closed_visit_no": None,
+        "images": [],
     }
 
 
@@ -406,8 +412,11 @@ def sorted_entries(item):
 
 
 def entry_files(entry):
-    """Every file on disk this entry owns: its image and its clips."""
+    """Every file on disk this entry owns: its images, their thumbnails and
+    its clips."""
     names = [entry.get("filename")]
+    for im in entry.get("images") or []:
+        names += [im.get("filename"), _thumb_name(im)]
     names += [c.get("filename") for c in entry.get("audio_clips") or []]
     return [n for n in names if n]
 
@@ -715,15 +724,15 @@ def make_job(name, number="", address=""):
 
 def make_visit(job, fields, idx, *, created=None):
     """A new visit of the job: its directories, an empty visit.json with the
-    previous visit's plan sheets copied in (without pins), and its index
-    entry. The caller saves idx."""
-    previous = job_visits(idx, job["job_id"])
+    project's plan sheets copied in (without pins), and its index entry. The
+    caller saves idx, and the jobs when job_plans() adopted older plans."""
     pid = next_pid(idx)
     os.makedirs(project_data_dir(pid), exist_ok=True)
     os.makedirs(plans_dir(pid), exist_ok=True)
     data = _blank()
-    if previous:
-        data["plans"] = _copy_plans(previous[-1]["project_id"], pid)
+    data["plans"] = [_plan_into_visit(job["job_id"], plan, pid)
+                     for plan in job_plans(job, idx)]
+    data["plans"] = [pl for pl in data["plans"] if pl]
     save(data, pid)
     fields = dict(fields)
     fields.setdefault("visit_date", _local().strftime("%Y-%m-%d"))
@@ -733,6 +742,151 @@ def make_visit(job, fields, idx, *, created=None):
              "created": created or _now(), "job_id": job["job_id"], **fields}
     idx["projects"].append(entry)
     return entry
+
+
+# ---------------------------------------------------------------- project plans
+#
+# Plans belong to the project: uploaded once from the project page and copied
+# into every site visit, so a pin always refers to a plan the visit holds.
+# job["plans"] is the list; the files live in uploads/<jid>/plans.
+
+def job_plans_dir(jid):
+    return os.path.join(UPLOADS, jid, "plans")
+
+
+def job_plans(job, idx):
+    """The project's plans. A project from before plans moved to the project
+    adopts its latest visit's plans the first time (the caller saves jobs)."""
+    if isinstance(job.get("plans"), list):
+        return job["plans"]
+    visits = job_visits(idx, job["job_id"])
+    adopted = []
+    if visits:
+        src = visits[-1]["project_id"]
+        os.makedirs(job_plans_dir(job["job_id"]), exist_ok=True)
+        for plan in load(src)["plans"]:
+            path = os.path.join(plans_dir(src), plan.get("file") or "")
+            if not plan.get("file") or not os.path.isfile(path):
+                continue
+            try:
+                shutil.copy2(path, os.path.join(job_plans_dir(job["job_id"]), plan["file"]))
+            except OSError as exc:
+                print(f"[sitescribe] could not adopt plan {path}: {exc!r}", file=sys.stderr)
+                continue
+            adopted.append(dict(plan, url=f"/uploads/{job['job_id']}/plans/{plan['file']}"))
+    job["plans"] = adopted
+    return adopted
+
+
+def _plan_into_visit(jid, plan, pid):
+    """Copy a project plan into a visit; its record there, or None."""
+    src = os.path.join(job_plans_dir(jid), plan["file"])
+    try:
+        os.makedirs(plans_dir(pid), exist_ok=True)
+        shutil.copy2(src, os.path.join(plans_dir(pid), plan["file"]))
+    except OSError as exc:
+        print(f"[sitescribe] could not copy plan {src}: {exc!r}", file=sys.stderr)
+        return None
+    return dict(plan, url=f"/uploads/{pid}/plans/{plan['file']}")
+
+
+def _plan_json(job, idx):
+    return [{k: pl.get(k) for k in ("plan_id", "name", "url", "pages")}
+            for pl in job_plans(job, idx)]
+
+
+@app.route("/api/jobs/<jid>/plans")
+@require_pin
+def api_job_plans(jid):
+    with _lock:
+        jobs = load_jobs()
+        job = need_job(jobs, jid)
+        out = _plan_json(job, load_index())
+        save_jobs(jobs)
+        return jsonify(plans=out)
+
+
+def add_job_plan(jid, f):
+    """Save an uploaded plan set to the project and copy it into every site
+    visit. Returns (jobs, job, idx, the project's plan record). Call under
+    the lock."""
+    name = os.path.basename(f.filename)
+    jobs = load_jobs()
+    job = need_job(jobs, jid)
+    idx = load_index()
+    plans = job_plans(job, idx)
+    visits = job_visits(idx, jid)
+    # an id no visit has used, so no pin can point at the wrong sheet
+    used = [_trailing_num(pl.get("plan_id")) for pl in plans]
+    for v in visits:
+        used += [_trailing_num(pl.get("plan_id")) for pl in load(v["project_id"])["plans"]]
+    plan_id = f"PL-{max(used, default=0) + 1:02d}"
+    filename = f"{plan_id}_{secure_filename(name) or 'plan.pdf'}"
+    os.makedirs(job_plans_dir(jid), exist_ok=True)
+    path = os.path.join(job_plans_dir(jid), filename)
+    f.save(path)
+    # the frontend picks PDF.js vs <img> off `name`, so keep the real extension
+    plan = {"plan_id": plan_id, "name": name, "file": filename,
+            "url": f"/uploads/{jid}/plans/{filename}",
+            "pages": pdf_pages(path) if name.lower().endswith(".pdf") else 1}
+    plans.append(plan)
+    save_jobs(jobs)
+    for v in visits:
+        data = load(v["project_id"])
+        rec = _plan_into_visit(jid, plan, v["project_id"])
+        if rec:
+            data["plans"].append(rec)
+            save(data, v["project_id"])
+    return jobs, job, idx, plan
+
+
+@app.route("/api/jobs/<jid>/plans", methods=["POST"])
+@require_pin
+def api_job_plan_upload(jid):
+    """Upload a plan set to the project; every site visit gets it."""
+    f = request.files.get("plan")
+    if not f or not f.filename:
+        raise ApiError("no plan uploaded")
+    if not f.filename.lower().endswith((".pdf", ".png", ".jpg", ".jpeg")):
+        raise ApiError("plans must be a PDF or an image")
+    with _lock:
+        _, job, idx, plan = add_job_plan(jid, f)
+        return jsonify(plan={k: plan[k] for k in ("plan_id", "name", "url", "pages")},
+                       plans=_plan_json(job, idx))
+
+
+@app.route("/api/jobs/<jid>/plans/<plan_id>", methods=["DELETE"])
+@require_pin
+def api_job_plan_delete(jid, plan_id):
+    """Remove a plan from the project and every visit; pins on it go too."""
+    with _lock:
+        jobs = load_jobs()
+        job = need_job(jobs, jid)
+        idx = load_index()
+        plans = job_plans(job, idx)
+        plan = next((pl for pl in plans if pl["plan_id"] == plan_id), None)
+        if plan is None:
+            raise ApiError(f"no such plan: {plan_id}", 404)
+        plans.remove(plan)
+        try:
+            os.remove(os.path.join(job_plans_dir(jid), plan["file"]))
+        except OSError:
+            pass
+        save_jobs(jobs)
+        for v in job_visits(idx, jid):
+            pid = v["project_id"]
+            data = load(pid)
+            for pl in [pl for pl in data["plans"] if pl.get("plan_id") == plan_id]:
+                data["plans"].remove(pl)
+                try:
+                    os.remove(os.path.join(plans_dir(pid), pl.get("file") or ""))
+                except OSError:
+                    pass
+            for e in all_entries(data):
+                if (e.get("location") or {}).get("plan_id") == plan_id:
+                    e["location"] = None
+            save(data, pid)
+        return jsonify(plans=_plan_json(job, idx))
 
 
 def _copy_plans(src_pid, dst_pid):
@@ -792,6 +946,8 @@ def _job_page(jid):
         "job": job_dict(job, idx),
         "visits": [visit_dict(p) for p in reversed(visits)],
         "action_items": action_items(idx, jid),
+        "plans": [{k: pl.get(k) for k in ("plan_id", "name", "url", "pages")}
+                  for pl in (job.get("plans") or [])],
         "next_visit_no": max((_visit_no(p) for p in visits), default=0) + 1,
         "observed_by": (last or {}).get("observed_by") or "",
     }
@@ -842,10 +998,12 @@ def api_job_delete(jid):
 def api_visit_create(jid):
     fields = _visit_fields(request.get_json(silent=True) or {})
     with _lock:
-        job = need_job(load_jobs(), jid)
+        jobs = load_jobs()
+        job = need_job(jobs, jid)
         idx = load_index()
         entry = make_visit(job, fields, idx)
         save_index(idx)
+        save_jobs(jobs)       # job_plans() may have adopted older plans
         out = visit_dict(entry)
     session["pid"] = entry["project_id"]
     return jsonify(out)
@@ -891,6 +1049,28 @@ def api_visit_patch(pid):
             p["name"] = f"Site Visit {fields['visit_no']}"
         save_index(idx)
         return jsonify(visit_dict(p))
+
+
+@app.route("/api/visits/<pid>/photo-choices")
+@require_pin
+def api_photo_choices(pid):
+    """The items in this visit's report that have more than one photo, so the
+    report page can ask which go in and how they are laid out."""
+    with _lock:
+        idx = load_index()
+        p = _need_visit(idx, pid)
+        data = load(pid)
+    vno = _visit_no(p)
+    out = []
+    for it in sorted_items(data):
+        for e in sorted_entries(it):
+            if e.get("include", True) and len(e.get("images") or []) > 1:
+                out.append({"photo_id": e["photo_id"], "label": entry_label(vno, e),
+                            "description": e.get("description") or "",
+                            "images": [{"image_id": im["image_id"],
+                                        "thumb_url": im.get("thumb_url") or im["url"]}
+                                       for im in e["images"]]})
+    return jsonify(items=out)
 
 
 # ---------------------------------------------------------------- action items
@@ -1256,7 +1436,13 @@ def uploaded(relpath):
 @require_project
 def api_visit():
     with _lock:
+        pid = current_pid()
         data = load()
+        # photos taken before thumbnails existed get theirs on first view
+        made = [_thumb(im, item_dir(it["item_id"]), pid, it["item_id"])
+                for it in data["items"] for e in it["photos"] for im in e["images"]]
+        if any(made):
+            save(data)
         return jsonify(items=sorted_items(data), plans=data["plans"])
 
 
@@ -1365,20 +1551,79 @@ def _seed_from_previous(item, mode):
             "action": last.get("action") or ""}
 
 
-def _attach_photo(entry, f, item_id, pid):
+THUMB_PX = 400     # the small copy the items screen shows: ~40 KB, not 4 MB
+
+
+def _thumb_name(im):
+    return f"{im['image_id']}_thumb.jpg" if im.get("image_id") else None
+
+
+def _make_thumb(src, dst):
+    """A 400 px JPEG of src, upright. False when the image can't be read;
+    the screen then falls back to the full photo."""
+    try:
+        from PIL import Image, ImageOps
+        if src.lower().endswith((".heic", ".heif")):
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        with Image.open(src) as im:
+            im = ImageOps.exif_transpose(im)
+            im.thumbnail((THUMB_PX, THUMB_PX))
+            im.convert("RGB").save(dst, "JPEG", quality=80)
+        return True
+    except Exception as exc:
+        print(f"[sitescribe] no thumbnail for {src}: {exc!r}", file=sys.stderr)
+        return False
+
+
+def _thumb(im, d, pid, item_id):
+    """Make im's thumbnail if it has none; True when the record changed."""
+    if im.get("thumb_url") or not im.get("filename"):
+        return False
+    src = os.path.join(d, im["filename"])
+    if not os.path.exists(src) or not _make_thumb(src, os.path.join(d, _thumb_name(im))):
+        return False
+    im["thumb_url"] = f"/uploads/{pid}/{item_id}/{_thumb_name(im)}"
+    return True
+
+
+def _sync_primary(entry):
+    """filename/url mirror the first image, for code that reads one photo."""
+    first = (entry.get("images") or [None])[0]
+    entry["filename"] = first["filename"] if first else None
+    entry["url"] = first["url"] if first else None
+
+
+def _attach_photo(entry, f, item_id, pid, image_id=None):
+    """Save an uploaded photo to the entry: a new image at the end, or, with
+    image_id, a retake that replaces that image in place."""
     safe = secure_filename(f.filename) or "photo.jpg"
-    filename = f"{entry['photo_id']}_{safe}"
     d = item_dir(item_id, pid)
     os.makedirs(d, exist_ok=True)
-    old = entry.get("filename")
+    images = entry.setdefault("images", [])
+    old = next((im for im in images if im["image_id"] == image_id), None) if image_id else None
+    if image_id and old is None:
+        raise ApiError(f"no such photo: {image_id}", 404)
+    if old is None:
+        n = max((_trailing_num(im["image_id"]) for im in images), default=0) + 1
+        image_id = f"{entry['photo_id']}_P{n:02d}"
+    filename = f"{image_id}_{safe}"
     f.save(os.path.join(d, filename))
-    if old and old != filename:
-        try:
-            os.remove(os.path.join(d, old))
-        except OSError:
-            pass
-    entry["filename"] = filename
-    entry["url"] = f"/uploads/{pid}/{item_id}/{filename}"
+    if old is not None:
+        for name in (old.get("filename"), _thumb_name(old)):
+            if name and name != filename:
+                try:
+                    os.remove(os.path.join(d, name))
+                except OSError:
+                    pass
+    im = {"image_id": image_id, "filename": filename,
+          "url": f"/uploads/{pid}/{item_id}/{filename}", "thumb_url": None, "created": _now()}
+    _thumb(im, d, pid, item_id)
+    if old is not None:
+        images[images.index(old)] = im
+    else:
+        images.append(im)
+    _sync_primary(entry)
 
 
 @app.route("/api/item/<item_id>/photo", methods=["POST"])
@@ -1402,9 +1647,7 @@ def api_photo_add(item_id):
         entry = None
         if f and f.filename:
             if target_id:
-                entry = need_photo(item, target_id)
-                if entry.get("filename"):
-                    raise ApiError(f"{target_id} already has an image")
+                entry = need_photo(item, target_id)   # one more photo of it
             else:
                 # newest imageless entry, not the oldest
                 entry = next((e for e in reversed(sorted_entries(item))
@@ -1464,6 +1707,44 @@ def api_photo_delete(item_id, photo_id):
         item["photos"].remove(entry)
         save(data)
         return jsonify(ok=True)
+
+
+@app.route("/api/item/<item_id>/photo/<photo_id>/image/<image_id>", methods=["POST"])
+@require_pin
+@require_project
+def api_image_retake(item_id, photo_id, image_id):
+    """Replace one photo of an entry, keeping its place among the others."""
+    f = request.files.get("photo")
+    if not f or not f.filename:
+        raise ApiError("no photo uploaded")
+    pid = current_pid()
+    with _lock:
+        data = load()
+        entry = need_photo(need_item(data, item_id), photo_id)
+        _attach_photo(entry, f, item_id, pid, image_id=image_id)
+        save(data)
+        return jsonify(entry)
+
+
+@app.route("/api/item/<item_id>/photo/<photo_id>/image/<image_id>", methods=["DELETE"])
+@require_pin
+@require_project
+def api_image_delete(item_id, photo_id, image_id):
+    with _lock:
+        data = load()
+        entry = need_photo(need_item(data, item_id), photo_id)
+        im = next((x for x in entry.get("images") or [] if x["image_id"] == image_id), None)
+        if im is None:
+            raise ApiError(f"no such photo: {image_id}", 404)
+        for name in (im.get("filename"), _thumb_name(im)):
+            try:
+                os.remove(os.path.join(item_dir(item_id), name))
+            except (OSError, TypeError):
+                pass
+        entry["images"].remove(im)
+        _sync_primary(entry)
+        save(data)
+        return jsonify(entry)
 
 
 # ---------------------------------------------------------------- audio
@@ -1588,6 +1869,11 @@ def api_plan():
         raise ApiError("no plan uploaded")
     pid = current_pid()
     with _lock:
+        jid = (find_project(load_index(), pid) or {}).get("job_id")
+        if jid:
+            # a visit's plans are its project's: add it there, and so to every visit
+            add_job_plan(jid, f)
+            return jsonify(next(pl for pl in reversed(load(pid)["plans"])))
         data = load()
         plan_id = next_plan_id(data)
         safe = secure_filename(f.filename) or "plan.pdf"
@@ -1959,7 +2245,22 @@ def _notice_headers(notice):
     return {"X-SiteScribe-Report-Notice": clean}
 
 
-def _export_snapshot(pid):
+def _apply_photo_choices(data, choices):
+    """{photo_id: {layout, images: [image_id, ...]}} from the report page:
+    which of an item's photos go in, in their order, side by side or stacked."""
+    for it in data["items"]:
+        for e in it["photos"]:
+            pick = (choices or {}).get(e["photo_id"])
+            if not isinstance(pick, dict):
+                continue
+            keep = pick.get("images")
+            if isinstance(keep, list):
+                e["images"] = [im for im in e["images"] if im["image_id"] in keep]
+                _sync_primary(e)
+            e["photo_layout"] = "stack" if pick.get("layout") == "stack" else "side"
+
+
+def _export_snapshot(pid, choices=None):
     """The visit and its index entry, read under the lock. The report itself
     is built outside it: rendering plans and photos takes seconds on a big
     visit and must not stall every other request meanwhile.
@@ -1970,6 +2271,7 @@ def _export_snapshot(pid):
     with _lock:
         idx = load_index()
         data = load(pid)
+        _apply_photo_choices(data, choices)
         entry = dict(find_project(idx, pid) or {})
         job = next((j for j in load_jobs()["jobs"] if j["job_id"] == entry.get("job_id")), None)
         if job is None:
@@ -2039,10 +2341,10 @@ def api_export_bundle():
     return resp
 
 
-def _build_bundle(pid):
+def _build_bundle(pid, choices=None):
     """(zip buffer, file name, fallback notice or None) for the project.
     Raises ImportError with a message for the user when a package is missing."""
-    data, entry = _export_snapshot(pid)
+    data, entry = _export_snapshot(pid, choices)
     try:
         report, notice = _report_buffer(data, pid, entry)
     except ImportError:
@@ -2074,8 +2376,9 @@ def api_export_build():
     Returns where to download it and the fallback notice, if any."""
     pid = current_pid()
     started = time.time()
+    choices = (request.get_json(silent=True) or {}).get("photos")
     try:
-        buf, name, notice = _build_bundle(pid)
+        buf, name, notice = _build_bundle(pid, choices if isinstance(choices, dict) else None)
     except ImportError as exc:
         return jsonify(error=str(exc)), 501
     path = export_file(pid)

@@ -15,6 +15,10 @@
 .ai .hd{font-size:14px}
 .ai .act{font-size:13.5px;margin-top:4px}
 .ai .act b{color:var(--mut);font-weight:600}
+.plan{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+.plan .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan .meta{color:var(--mut);font-size:12.5px}
+.plan button{background:transparent;color:var(--bad);border:0;font-size:18px;padding:0 6px;line-height:1}
 .toggle{background:none;border:0;color:var(--accent);padding:0;font-size:13px;font-weight:600;cursor:pointer}
 {% endblock %}
 {% block content %}
@@ -32,6 +36,11 @@
   <input type="text" id="eAddress" maxlength="300">
   <div class="row" style="margin-top:14px">
     <button class="ghost" id="eCancel">Cancel</button><button id="eSave">Save</button></div>
+
+  <label class="f" style="margin-top:20px">Plans <small>(every site visit uses these for pin locations)</small></label>
+  <div id="planList"></div>
+  <button class="ghost wide" id="planAdd" style="margin-top:8px">+ Upload plan (PDF or image)</button>
+  <input type="file" id="planInput" hidden accept="application/pdf,image/*">
 </div>
 
 <div class="sec row">
@@ -143,6 +152,34 @@ $('btnEdit').onclick = () => {
   const j = page.job;
   $('eName').value = j.name; $('eNumber').value = j.number; $('eAddress').value = j.address;
   $('editBox').hidden = false; $('info').hidden = true;
+  api(`/api/jobs/${JID}/plans`).then(r => renderPlans(r.plans)).catch(e => say(e.message,"bad"));
+};
+
+/* ---------------- plans (the project's, copied into every visit) ---------------- */
+function renderPlans(plans){
+  $('planList').innerHTML = plans.length ? plans.map(p => `
+    <div class="plan"><a class="nm" href="${p.url}" target="_blank">${esc(p.name)}</a>
+      <span class="meta">${p.pages} page${p.pages===1?"":"s"}</span>
+      <button data-id="${p.plan_id}" title="Remove plan">&times;</button></div>`).join("")
+    : `<div class="hint">No plans yet.</div>`;
+  $('planList').querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const p = plans.find(x => x.plan_id === b.dataset.id);
+    if (!confirm(`Remove “${p.name}” from the project?
+
+Every site visit loses it, and pins placed on it are removed.`)) return;
+    try{ renderPlans((await api(`/api/jobs/${JID}/plans/${p.plan_id}`, {method:"DELETE"})).plans); say("Plan removed.","ok"); }
+    catch(err){ say(err.message,"bad"); }
+  });
+}
+$('planAdd').onclick = () => $('planInput').click();
+$('planInput').onchange = async ev => {
+  const f = ev.target.files[0]; if (!f) return; ev.target.value = "";
+  const fd = new FormData(); fd.append("plan", f);
+  $('planAdd').disabled = true; $('planAdd').textContent = "Uploading…";
+  try{ const r = await api(`/api/jobs/${JID}/plans`, {method:"POST", body:fd});
+       renderPlans(r.plans); say(`Plan “${r.plan.name}” added to every site visit.`,"ok"); }
+  catch(err){ say(err.message,"bad"); }
+  finally{ $('planAdd').disabled = false; $('planAdd').textContent = "+ Upload plan (PDF or image)"; }
 };
 $('eCancel').onclick = () => { $('editBox').hidden = true; $('info').hidden = false; };
 $('eSave').onclick = async () => {

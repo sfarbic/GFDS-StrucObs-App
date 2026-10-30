@@ -4,16 +4,16 @@ Owner: allenmarden
 Suggested library: PyMuPDF (draw directly on the original PDF pages)
 
 sheet_image_with_pins draws on the sheet's rendered PNG with Pillow: a
-filled circle per pin in its severity color, the observation number in
-white, and a severity legend in the top-left corner. Pins that share a
-number and a spot (several photos of one item) are drawn once.
+filled circle per pin, red for an open action item and gray otherwise
+(models.pin_color), the ITEM number in white, and a legend in the top-left
+corner. Pins that share a number and a spot are drawn once.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .models import SEVERITY_COLORS, Project, Severity
+from .models import PIN_LEGEND, Project, pin_color
 
 
 def export_marked_plans(project: Project, out_pdf: Path) -> Path:
@@ -48,7 +48,7 @@ def sheet_image_with_pins(project: Project, sheet_id: str, out_png: Path) -> Pat
         drawn.add(spot)
         cx, cy = obs.pin.x * width, obs.pin.y * height
         draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius),
-                     fill=SEVERITY_COLORS[obs.severity], outline="white",
+                     fill=pin_color(obs), outline="white",
                      width=max(2, radius // 6))
         # the printed ITEM number ("2.3") when there is one; longer labels get
         # a smaller font so they stay inside the circle
@@ -65,14 +65,14 @@ def _legend(draw, radius: int, font) -> None:
     pad = radius
     row = round(radius * 2.4)
     dot = round(radius * 0.7)
-    text_width = max(draw.textlength(s.value, font=font) for s in Severity)
+    text_width = max(draw.textlength(name, font=font) for name, _ in PIN_LEGEND)
     box_w = pad * 3 + dot * 2 + text_width
-    box_h = pad * 2 + row * (len(Severity) - 1) + dot * 2
+    box_h = pad * 2 + row * (len(PIN_LEGEND) - 1) + dot * 2
     draw.rectangle((0, 0, box_w, box_h), fill="white", outline="#333333", width=2)
-    for i, severity in enumerate(Severity):
+    for i, (name, color) in enumerate(PIN_LEGEND):
         cx, cy = pad + dot, pad + dot + i * row
-        draw.ellipse((cx - dot, cy - dot, cx + dot, cy + dot), fill=SEVERITY_COLORS[severity])
-        draw.text((cx + dot + pad, cy), severity.value, fill="#222222", font=font, anchor="lm")
+        draw.ellipse((cx - dot, cy - dot, cx + dot, cy + dot), fill=color)
+        draw.text((cx + dot + pad, cy), name, fill="#222222", font=font, anchor="lm")
 
 
 def _font(size: int):

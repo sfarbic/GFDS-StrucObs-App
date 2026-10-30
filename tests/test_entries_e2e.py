@@ -109,13 +109,17 @@ def test_upload_without_target_uses_newest_imageless(client):
     assert e["photo_id"] == "001_02"
 
 
-def test_upload_to_a_filled_entry_is_rejected(client):
+def test_another_photo_of_an_entry_is_added_to_it(client):
     client.post("/api/item")
     upload(client, "001", photo_id="001_01")
     r = client.post("/api/item/001/photo",
                     data={"photo": (io.BytesIO(_png()), "y.png"), "photo_id": "001_01"},
                     content_type="multipart/form-data")
-    assert r.status_code == 400
+    assert r.status_code == 200
+    e = r.get_json()
+    assert [im["image_id"] for im in e["images"]] == ["001_01_P01", "001_01_P02"]
+    assert e["filename"] == e["images"][0]["filename"]          # the first stays first
+    assert all(im["thumb_url"] for im in e["images"])            # 400 px copies made
 
 
 # --------------------------------------------------------------- validation

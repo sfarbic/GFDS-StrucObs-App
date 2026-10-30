@@ -61,7 +61,8 @@ import zipfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .models import SEVERITY_COLORS, Observation, PlanSheet, Project, Severity
+from .models import (PIN_LEGEND, SEVERITY_COLORS, Observation, PlanSheet, Project,
+                     Severity, pin_color)
 
 log = logging.getLogger(__name__)
 
@@ -435,7 +436,7 @@ def _draw_pins(sheet: PlanSheet, entries: list[_Entry], out: Path) -> Path:
         if pin is None or pin.sheet_id != sheet.id:
             continue
         x, y = pin.x * w, pin.y * h
-        color = SEVERITY_COLORS[_sev(e.obs)]
+        color = pin_color(e.obs)
         draw.ellipse([x - r, y - r, x + r, y + r], fill=color, outline="white", width=max(2, r // 6))
         draw.text((x, y), e.label, fill="white", font=font, anchor="mm")
     im.save(out, "PNG", optimize=True)
@@ -656,11 +657,11 @@ class _Writer:
         from docx.shared import RGBColor
 
         p = self.body("")
-        p.add_run("Pin colors:  ")
-        for sev in Severity:
+        p.add_run("Pins:  ")
+        for name, color in PIN_LEGEND:
             run = p.add_run("● ")
-            run.font.color.rgb = RGBColor.from_string(SEVERITY_COLORS[sev].lstrip("#"))
-            p.add_run(f"{sev.value}   ")
+            run.font.color.rgb = RGBColor.from_string(color.lstrip("#"))
+            p.add_run(f"{name}   ")
 
     # -- 4. observations -----------------------------------------------------
     def observation(self, e: _Entry):
@@ -672,16 +673,6 @@ class _Writer:
         p.add_run("\t" + (o.description.strip() or "(no description)"))
         p.paragraph_format.keep_with_next = True
         p.paragraph_format.space_before = Pt(6)
-
-        sev = _sev(o)
-        p = self._indented(self.body(""))
-        p.add_run("Severity: ")
-        run = p.add_run(sev.value)
-        run.bold = True
-        run.font.color.rgb = RGBColor.from_string(SEVERITY_COLORS[sev].lstrip("#"))
-        if o.tags:
-            p.add_run("      Tags: " + ", ".join(o.tags))
-        p.paragraph_format.keep_with_next = True
 
         if e.sheet_name:
             p = self._hanging(self.body(""))
@@ -708,6 +699,11 @@ class _Writer:
         from docx.shared import Pt
 
         avail = self.text_w_in - _INDENT_IN
+        if len(e.photos) > 1 and e.obs.photo_layout == "stack":
+            # one above the other, each at the single-photo size
+            for photo in e.photos:
+                self.photos(replace(e, photos=[photo]))
+            return
         if len(e.photos) == 1:
             photo = e.photos[0]
             stream, w, h = _image_stream(photo, _PHOTO_MAX_PX)
@@ -914,7 +910,10 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         observer, site_visit_no, stage_of_construction [paragraphs],
         structural_elements_observed [paragraphs], previous_items [],
         items [{number, description, location, caption, photos [images],
-                action, action_list [str], photos_after_action []}]
+                photo_rows [[images]], action, action_list [str],
+                photos_after_action []}]
+        photo_rows: one row of all the photos side by side, or one row per
+        photo when the item's photo_layout is "stack"
     Extra, for templates that want them:
         summary [paragraphs], legend [{name, color}],
         items[].severity, .severity_color, .tags, .time, .captions [str],
@@ -927,16 +926,21 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
 
     opts = project.report_options or {}
 
-    def images(e: _Entry) -> list:
+    def images(e: _Entry, n: int | None = None) -> list:
         # SOR template: a group sits on one line right of a 1.5" indent (~4.4"
-        # usable) with ~0.55" gaps between photos
-        n = len(e.photos)
+        # usable) with ~0.55" gaps between photos; n photos share the line
+        n = n or len(e.photos)
         max_w = 4.3 if n <= 1 else max(1.0, (4.2 - 0.6 * (n - 1)) / n)
         out = []
         for p in e.photos:
             stream, w, h = _image_stream(p, _PHOTO_MAX_PX)
             out.append(InlineImage(tpl, stream, **_photo_size(w, h, n, max_w)))
         return out
+
+    def photo_rows(e: _Entry) -> list:
+        if len(e.photos) > 1 and e.obs.photo_layout == "stack":
+            return [[img] for img in images(e, 1)]
+        return [images(e)] if e.photos else []
 
     items = []
     for e in entries:
@@ -945,13 +949,17 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         distinct = [c for c in dict.fromkeys(caps) if c]
         action, steps = _action_parts(o.action_item)
         sev = _sev(o)
+        rows = photo_rows(e)
+        # side by side the one row already is the photo list; don't size twice
+        flat = rows[0] if len(rows) == 1 else images(e)
         items.append({
             "number": e.label,
             "description": o.description.strip(),
             "location": e.sheet_name,
             "caption": "; ".join(distinct),
             "captions": caps,
-            "photos": images(e),
+            "photos": flat,
+            "photo_rows": rows,
             "action": action,
             "action_list": steps,
             "photos_after_action": [],
@@ -996,7 +1004,7 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
                        "severity": _sev(e.obs).value, "description": _short(e.obs.description)}
                       for e in entries if e.photos],
         "plans": plans,
-        "legend": [{"name": s.value, "color": SEVERITY_COLORS[s]} for s in Severity],
+        "legend": [{"name": name, "color": color} for name, color in PIN_LEGEND],
     }
 
 

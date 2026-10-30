@@ -44,6 +44,17 @@ SEVERITY_COLORS = {
 }
 
 
+# Pin colors on the marked-up plans: an action item still open, and
+# everything else (closed out, or an observation with no action).
+PIN_OPEN = "#B12216"      # GFDS red
+PIN_DONE = "#8A8F98"      # gray
+PIN_LEGEND = [("Open action item", PIN_OPEN), ("Closed / no action", PIN_DONE)]
+
+
+def pin_color(obs: "Observation") -> str:
+    return PIN_OPEN if (obs.action_item.strip() and not obs.closed) else PIN_DONE
+
+
 @dataclass
 class GeoPoint:
     lat: float
@@ -97,6 +108,8 @@ class Observation:
     number: int = 0           # photo number in the report (1, 2, 3...)
     label: str = ""           # the printed ITEM number, e.g. "2.3"; "" = derive from number
     include: bool = True      # False = captured but left out of the report
+    closed: bool = False      # its action item is closed out (pin drawn gray)
+    photo_layout: str = "side"   # several photos: "side" by side, or "stack"ed
     # Per-photo captions for observations with more than one photo, keyed by
     # the photo's file name (Path(photo).name, e.g. "003_abc_2.jpg"), never
     # the full path, so the key survives moving the project folder. Photos

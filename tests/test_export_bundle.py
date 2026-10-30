@@ -132,8 +132,9 @@ def test_bundle_has_report_tagged_photos_and_pinned_plans(client):
         red, _, blue = image.convert("RGB").getpixel((32, 24))
         assert blue > 200 and red < 60
 
-    assert _pin_color(zf, f"{folder}/plans/Framing plans_page2.png", 0.5, 0.5) == (0xF2, 0x99, 0x4A)
-    assert _pin_color(zf, f"{folder}/plans/Framing plans_page1.png", 0.25, 0.5) == (0x9B, 0x51, 0xE0)
+    # no action on either entry: both pins gray
+    assert _pin_color(zf, f"{folder}/plans/Framing plans_page2.png", 0.5, 0.5) == (0x8A, 0x8F, 0x98)
+    assert _pin_color(zf, f"{folder}/plans/Framing plans_page1.png", 0.25, 0.5) == (0x8A, 0x8F, 0x98)
 
 
 def test_every_floor_plan_gets_its_own_image_even_with_the_same_name(client):
@@ -154,9 +155,9 @@ def test_every_floor_plan_gets_its_own_image_even_with_the_same_name(client):
         "Level 1_page1.png", "Plans_page1.png", "plans (2)_page1.png", "Plans (3)_page1.png"])
     assert len(set(n.lower() for n in zf.namelist())) == len(zf.namelist())
     # each image carries its own floor's pin, not another plan's
-    expected = {"Plans_page1.png": (0.4, (0x27, 0xAE, 0x60)),
-                "plans (2)_page1.png": (0.6, (0xEB, 0x57, 0x57)),
-                "Plans (3)_page1.png": (0.8, (0x9B, 0x51, 0xE0))}
+    expected = {"Plans_page1.png": (0.4, (0x8A, 0x8F, 0x98)),
+                "plans (2)_page1.png": (0.6, (0x8A, 0x8F, 0x98)),
+                "Plans (3)_page1.png": (0.8, (0x8A, 0x8F, 0x98))}
     for name, (x, color) in expected.items():
         assert _pin_color(zf, f"{folder}/plans/{name}", x, 0.5) == color
         assert _pin_color(zf, f"{folder}/plans/{name}", 0.2, 0.5) == (255, 255, 255)

@@ -60,6 +60,24 @@ uploads/P-001/plans/...
 Each entry gets a report number when it is made and keeps it: entry n of
 Site Visit 2 prints as **ITEM 2.n**.
 
+### Items screen
+
+One ITEM per screen: ◀ / ▶ step through the visit's items (▶ on the last
+starts a new one), the photo shows as a fixed 180 px box of its 400 px
+thumbnail (`<image_id>_thumb.jpg`, made on upload), and tapping it opens the
+full photo with **Keep · Retake · Delete**. An item holds several photos
+(`entry.images`, one per tap of the phone's camera); `filename`/`url` mirror
+the first. 📍 picks the location, ☑ toggles Include, and Description and
+Action each have a mic.
+
+Plans belong to the project (`job["plans"]`, `uploads/<J-001>/plans/`),
+uploaded under the project's **Edit** and copied into every visit. Pins are
+red while the item's action is open and gray otherwise, labelled ITEM n.n.
+
+When a visit has items with more than one photo, **Generate report** asks
+for each which photos go in and whether they sit side by side or top to
+bottom (`POST /api/export/build` with `{photos: {photo_id: {images, layout}}}`).
+
 ### Action items
 
 An entry with an **Action** is an action item. From the items screen or the

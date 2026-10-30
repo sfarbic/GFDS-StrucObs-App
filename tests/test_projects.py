@@ -3,6 +3,7 @@ visits, carry plans forward, track action items across visits, and check
 which previous items each visit's report prints."""
 
 import io
+import zipfile
 
 import pymupdf
 import pytest
@@ -219,3 +220,82 @@ def test_open_action_items_log_lists_only_unclosed_items(client):
     assert "Missing hold-down" in text and "Install an HDU8." in text
     assert "10/20/26 – HDU8 on order." in text
     assert "Header undersized" not in text and "Observation only" not in text
+
+
+def _jpeg(color="red"):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (80, 60), color).save(buf, "JPEG")
+    buf.seek(0)
+    return buf
+
+
+def _shoot(client, entry, color="red"):
+    item_id = entry["photo_id"].split("_")[0]
+    r = client.post(f"/api/item/{item_id}/photo", content_type="multipart/form-data",
+                    data={"photo": (_jpeg(color), "IMG.jpg"), "photo_id": entry["photo_id"]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    return r.get_json()
+
+
+def test_project_plans_reach_every_visit_and_removing_one_clears_its_pins(client):
+    jid = _job(client)["job_id"]
+    _visit(client, jid, 1)
+    r = client.post(f"/api/jobs/{jid}/plans", content_type="multipart/form-data",
+                    data={"plan": (_plan_pdf(), "S-201.pdf")})
+    assert r.status_code == 200
+    plan_id = r.get_json()["plan"]["plan_id"]
+    e = _entry(client, description="x", location={"plan_id": plan_id, "page": 1, "x": .5, "y": .5})
+    _visit(client, jid, 2)                               # new visits get the project's plans
+    assert [p["plan_id"] for p in client.get("/api/visit").get_json()["plans"]] == [plan_id]
+
+    r = client.delete(f"/api/jobs/{jid}/plans/{plan_id}")
+    assert r.status_code == 200 and r.get_json()["plans"] == []
+    assert client.get("/api/visit").get_json()["plans"] == []
+    v1 = client.get(f"/api/jobs/{jid}").get_json()["visits"][-1]["project_id"]
+    client.post(f"/api/projects/{v1}/open")
+    entry = client.get("/api/visit").get_json()["items"][0]["photos"][0]
+    assert entry["photo_id"] == e["photo_id"] and entry["location"] is None
+
+
+def test_several_photos_of_one_item_with_retake_and_delete(client):
+    jid = _job(client)["job_id"]
+    _visit(client, jid, 1)
+    e = _entry(client, description="Cracked beam")
+    _shoot(client, e, "red")
+    e = _shoot(client, e, "blue")
+    first, second = e["images"]
+    item_id = e["photo_id"].split("_")[0]
+
+    r = client.post(f"/api/item/{item_id}/photo/{e['photo_id']}/image/{first['image_id']}",
+                    content_type="multipart/form-data", data={"photo": (_jpeg("green"), "R.jpg")})
+    retaken = r.get_json()["images"]
+    assert [im["image_id"] for im in retaken] == [first["image_id"], second["image_id"]]
+    assert retaken[0]["filename"] != first["filename"]          # replaced in place
+
+    r = client.delete(f"/api/item/{item_id}/photo/{e['photo_id']}/image/{second['image_id']}")
+    assert [im["image_id"] for im in r.get_json()["images"]] == [first["image_id"]]
+
+
+def test_report_asks_about_items_with_several_photos_and_follows_the_answer(client):
+    jid = _job(client)["job_id"]
+    v1 = _visit(client, jid, 1)
+    e = _entry(client, description="Cracked beam")
+    for color in ("red", "blue", "green"):
+        e = _shoot(client, e, color)
+    single = _entry(client, description="One photo only")
+    _shoot(client, single)
+
+    choices = client.get(f"/api/visits/{v1['project_id']}/photo-choices").get_json()["items"]
+    assert [c["label"] for c in choices] == ["1.1"] and len(choices[0]["images"]) == 3
+
+    keep = [im["image_id"] for im in e["images"][:2]]
+    r = client.post("/api/export/build", json={"photos": {e["photo_id"]: {"images": keep,
+                                                                          "layout": "stack"}}})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    report = zipfile.ZipFile(io.BytesIO(client.get(r.get_json()["url"]).data))
+    docx = next(n for n in report.namelist() if n.endswith(".docx"))
+    doc = Document(io.BytesIO(report.read(docx)))
+    pictures = len(list(doc.element.body.iter(
+        "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}inline")))
+    assert pictures == 3          # two of ITEM 1.1's three photos, plus ITEM 1.2's one

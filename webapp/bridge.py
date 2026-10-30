@@ -10,6 +10,8 @@ other's shape. Routes never see the dataclasses; modules never see the JSON.
 
 Mapping (see INTEGRATION_PLAN.md):
 
+    entry images [...]            photos, in order (photo_layout: side / stack)
+    closed_visit_no               closed
     photo entry 003_02            Observation, id "003_02"; number is the entry's
                                   own report number (the item's for older
                                   records), label "<visit>.<number>" when the
@@ -94,10 +96,18 @@ def entries(data: dict, item_dir: Callable[[str], Path | str], *, tz: tzinfo | N
             yield observation(item, {}, None, folder=folder, tz=tz), None
             continue
         for ph in photos:
-            path = folder / ph["filename"] if ph.get("filename") else None
-            if path is not None and not path.exists():
-                path = None
-            yield observation(item, ph, path, folder=folder, tz=tz), path
+            paths = image_paths(ph, folder)
+            path = paths[0] if paths else None
+            obs = observation(item, ph, path, folder=folder, tz=tz)
+            obs.photos = paths
+            yield obs, path
+
+
+def image_paths(ph: dict, folder: Path) -> list[Path]:
+    """Every photo of an entry that is on disk, in order: its images list,
+    or its one filename for records written before entries held several."""
+    names = [im.get("filename") for im in ph.get("images") or []]         if ph.get("images") is not None else [ph.get("filename")]
+    return [folder / n for n in names if n and (folder / n).exists()]
 
 
 def observation(item: dict, ph: dict, path: Path | None, *, folder: Path | None = None,
@@ -116,6 +126,8 @@ def observation(item: dict, ph: dict, path: Path | None, *, folder: Path | None 
         number=(ph["number"] if isinstance(ph.get("number"), int) and ph["number"] > 0
                 else item_number(item.get("item_id"))),
         action_item=str(ph.get("action") or "").strip(),
+        closed=bool(ph.get("closed_visit_no")),
+        photo_layout="stack" if ph.get("photo_layout") == "stack" else "side",
         include=details["include"] is not False,
         id=str(ph.get("photo_id") or item.get("item_id") or ""),
     )

@@ -8,101 +8,86 @@
 :root{
   --bg:#fff;--fg:#14181d;--mut:#667085;--line:#e4e7ec;--card:#f9fafb;--card2:#f2f4f7;
   --accent:#1554b8;--accent-fg:#fff;--ok:#067647;--bad:#b42318;--warn:#b54708;
-  --info:#5b6b7c;--minor:#2e7d32;--major:#b54708;--critical:#b42318;--safety:#6941c6;
 }
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){
   --bg:#0e1216;--fg:#e8eaed;--mut:#98a2b3;--line:#262c33;--card:#161a1f;--card2:#1d2227;
   --accent:#4d8df0;--accent-fg:#06101f;--ok:#5fd09a;--bad:#ff8a80;--warn:#f5b26b;
-  --info:#8fa0b0;--minor:#5fd09a;--major:#f5b26b;--critical:#ff8a80;--safety:#c3a6ff;
 }}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);
   font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
-  padding:0 14px calc(90px + env(safe-area-inset-bottom))}
+  padding:0 14px calc(24px + env(safe-area-inset-bottom))}
 .wrap{max-width:560px;margin:0 auto}
-header{display:flex;align-items:center;gap:10px;padding:14px 0 11px;
-  border-bottom:1px solid var(--line)}
-.back{flex:0 0 auto;display:grid;place-items:center;width:36px;height:36px;
+button{font:inherit;border:0;border-radius:9px;background:var(--accent);
+  color:var(--accent-fg);padding:10px 14px;font-weight:600;cursor:pointer}
+button.ghost{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+button.sm{padding:7px 10px;font-size:13px}
+button:disabled{opacity:.35;cursor:default}
+input[type=file]{display:none}
+textarea,select{width:100%;padding:10px;border:1px solid var(--line);
+  border-radius:9px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:76px;resize:vertical}
+
+/* header: project, visit, Edit visit info, Finish */
+header{display:flex;align-items:center;gap:8px;padding:12px 0 10px;border-bottom:1px solid var(--line)}
+.back{flex:0 0 auto;display:grid;place-items:center;width:34px;height:34px;
   border-radius:9px;background:var(--card2);border:1px solid var(--line);
-  color:var(--fg);text-decoration:none;font-size:23px;line-height:1}
-.projName{font-weight:700;font-size:16.5px;letter-spacing:-.015em;
+  color:var(--fg);text-decoration:none;font-size:22px;line-height:1}
+.hd{flex:1;min-width:0}
+.projName{font-weight:700;font-size:16px;letter-spacing:-.015em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sub{color:var(--mut);font-size:12px}
-button{font:inherit;border:0;border-radius:9px;background:var(--accent);
-  color:var(--accent-fg);padding:11px 14px;font-weight:600;cursor:pointer}
-button.ghost{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
-button.ghost:disabled{opacity:.35}
-button.danger{background:transparent;color:var(--bad);border:1px solid var(--line)}
-button.sm{padding:9px 10px;font-size:12.5px}
-button.wide{width:100%}
-.nav{display:flex;align-items:center;gap:10px;margin-top:13px}
-.nav button{min-width:54px;font-size:19px;line-height:1;padding:12px 0;flex:0 0 auto}
-.nav .label{flex:1;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
-.nav .label small{display:block;font-weight:500;font-size:10.5px;color:var(--mut);
-  letter-spacing:.09em;text-transform:uppercase}
-.nav.item button{background:var(--accent);color:var(--accent-fg)}
-.nav.item button.itemDel{background:transparent;color:var(--bad);
-  border:1px solid var(--line);min-width:46px;font-size:16px}
-.nav.photo{margin-top:8px}
-.nav.photo button{background:var(--card2);color:var(--fg);border:1px solid var(--line);
-  font-size:15px;min-width:44px;padding:8px 0}
-.nav.photo .label{font-size:15px}
-.idTag{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em}
-.photoBox{position:relative;background:var(--card2);border:1px solid var(--line);
-  border-radius:12px;margin-top:10px;overflow:hidden;min-height:190px;
-  display:flex;align-items:center;justify-content:center}
-.photoBox img{width:100%;display:block}
-.empty{text-align:center;padding:30px 16px;color:var(--mut)}
-.empty p{margin:0 0 11px;font-size:13.5px}
-input[type=file]{display:none}
-textarea,input[type=text],select{width:100%;padding:11px;border:1px solid var(--line);
-  border-radius:9px;background:var(--bg);color:var(--fg);font:inherit}
-textarea{min-height:82px;resize:vertical}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;
-  padding:13px;margin-top:11px}
-.card h2{margin:0 0 9px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--mut);font-weight:700}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{padding:8px 12px;border-radius:999px;border:1.5px solid var(--line);
-  background:var(--bg);color:var(--mut);font-size:13px;font-weight:600;cursor:pointer}
-.chip[aria-pressed=true]{color:#fff;border-color:transparent}
-.chip[data-v=Info][aria-pressed=true]{background:var(--info)}
-.chip[data-v=Minor][aria-pressed=true]{background:var(--minor)}
-.chip[data-v=Major][aria-pressed=true]{background:var(--major)}
-.chip[data-v=Critical][aria-pressed=true]{background:var(--critical)}
-.chip[data-v=Safety][aria-pressed=true]{background:var(--safety)}
-.inc{display:flex;align-items:center;gap:11px;background:var(--card);
-  border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-top:11px}
-.inc .t{flex:1;font-size:13.5px;font-weight:600}
-.inc .t small{display:block;font-weight:400;color:var(--mut);font-size:11.5px}
-.sw{position:relative;width:48px;height:29px;flex:0 0 auto}
-.sw input{opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
-.sw span{position:absolute;inset:0;border-radius:999px;background:var(--line);transition:.15s}
-.sw span::after{content:"";position:absolute;width:23px;height:23px;border-radius:50%;
-  background:#fff;top:3px;left:3px;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.sw input:checked+span{background:var(--ok)}
-.sw input:checked+span::after{transform:translateX(19px)}
-.msg{font-size:12px;color:var(--mut);margin-top:7px;min-height:15px}
+header a.sm{text-decoration:none;display:inline-block}
+
+/* ITEM 2.1 · 1/3  🗑 */
+.counter{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px}
+.counter .lbl{font-weight:700;font-variant-numeric:tabular-nums;font-size:17px}
+.counter .lbl small{font-weight:500;color:var(--mut);font-size:13px}
+.trash{background:transparent;color:var(--bad);border:1px solid var(--line);
+  padding:4px 8px;font-size:15px;border-radius:8px}
+
+/* ◀ thumbnail ▶ */
+.stage{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px}
+.arrow{width:44px;height:44px;border-radius:50%;padding:0;font-size:18px;flex:0 0 auto}
+/* The photo takes what the phone has left: as wide as the space between the
+   arrows, and as tall as the screen allows with Description and Action still
+   in view below it (~490 px of everything else). dvh follows the phone's
+   address bar; vh is the fallback for browsers without it. */
+.thumb{position:relative;flex:0 0 auto;border-radius:14px;
+  width:min(calc(100vw - 132px), 420px);
+  height:clamp(180px, calc(100vh - 490px), 460px);
+  height:clamp(180px, calc(100dvh - 490px), 460px);
+  border:1px solid var(--line);background:var(--card2);overflow:hidden;padding:0;
+  display:grid;place-items:center;color:var(--mut);cursor:pointer}
+.thumb img{width:100%;height:100%;object-fit:contain;display:block}
+.thumb .add{display:grid;place-items:center;gap:4px;font-size:13px;font-weight:600}
+.thumb .add svg{width:46px;height:46px}
+.thumb .badge{position:absolute;right:7px;bottom:7px;background:rgba(0,0,0,.65);color:#fff;
+  font-size:11.5px;font-weight:700;padding:2px 7px;border-radius:999px}
+
+/* 📍 📷 ☑ */
+.tools{display:flex;justify-content:center;gap:12px;margin-top:12px}
+.tool{display:grid;justify-items:center;gap:3px;width:84px;padding:8px 4px;border-radius:11px;
+  background:var(--card);border:1px solid var(--line);color:var(--fg);font-size:11.5px;font-weight:600}
+.tool svg{width:24px;height:24px}
+.tool.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--card))}
+.tool.off{color:var(--mut)}
+
+.field{margin-top:14px}
+.field label{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mut);font-weight:700;margin-bottom:5px}
+.field label small{text-transform:none;letter-spacing:0;font-weight:500}
+.tx{display:flex;gap:8px;align-items:flex-start}
+.mic{flex:0 0 auto;width:48px;height:48px;padding:0;border-radius:11px;display:grid;place-items:center}
+.mic svg{width:22px;height:22px}
+.mic.live{background:var(--bad)}
+.msg{font-size:12px;color:var(--mut);margin-top:5px;min-height:15px}
 .msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}.msg.warn{color:var(--warn)}
-.row{display:flex;gap:8px}.row>*{flex:1}
-.loc{display:flex;align-items:center;gap:11px}
-.loc canvas{width:72px;height:72px;border-radius:9px;border:1px solid var(--line);
-  flex:0 0 auto;background:var(--card2)}
-.loc .d{flex:1;font-size:12.5px;color:var(--mut)}
-.tx{display:flex;gap:9px;align-items:flex-start;margin-top:10px;
-  font-size:12px;color:var(--mut);cursor:pointer}
-.tx input{margin:2px 0 0;width:16px;height:16px;accent-color:var(--accent)}
-.clip{display:flex;align-items:center;gap:8px;background:var(--card2);
-  border:1px solid var(--line);border-radius:9px;padding:8px;margin-top:8px}
-.clip audio{flex:1;min-width:0;height:32px}
-.clip .id{font-size:10.5px;color:var(--mut);font-weight:700;flex:0 0 auto}
-.clip button{background:transparent;color:var(--bad);border:0;padding:3px 6px;font-size:16px}
-.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);
-  border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));z-index:40}
-.bar .wrap{display:flex;gap:8px}
+
 dialog{border:0;border-radius:14px;padding:0;background:var(--card);color:var(--fg);
   max-width:94vw;width:600px}
-dialog::backdrop{background:rgba(0,0,0,.65)}
+dialog::backdrop{background:rgba(0,0,0,.7)}
 .dlgHead{display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:12px 14px;border-bottom:1px solid var(--line)}
 .dlgHead b{font-size:14.5px}
@@ -110,10 +95,17 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 #planHolder{position:relative;touch-action:manipulation}
 #planCanvas{width:100%;display:block;border:1px solid var(--line);border-radius:9px}
 .pin{position:absolute;width:26px;height:26px;margin:-26px 0 0 -13px;pointer-events:none}
-.opt{display:block;width:100%;text-align:left;background:var(--card2);color:var(--fg);
-  border:1px solid var(--line);border-radius:11px;padding:13px;margin-bottom:9px}
-.opt b{display:block;font-size:14.5px;margin-bottom:2px}
-.opt span{font-size:12.5px;color:var(--mut);font-weight:400;line-height:1.45}
+
+/* full-size photo: Keep · Retake · Delete */
+#viewDlg{width:min(720px,96vw)}
+.viewImg{position:relative;background:#000;display:grid;place-items:center;min-height:200px}
+.viewImg img{max-width:100%;max-height:68vh;display:block}
+.viewImg .nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;
+  border-radius:50%;padding:0;background:rgba(0,0,0,.55);color:#fff;font-size:18px}
+.viewImg .prev{left:8px}.viewImg .next{right:8px}
+.viewBar{display:flex;gap:8px;padding:12px 14px}
+.viewBar button{flex:1}
+.viewBar .del{background:transparent;color:var(--bad);border:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -121,88 +113,68 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 
 <header>
   <a class="back" href="/" id="backLink" title="Project">&lsaquo;</a>
-  <div style="flex:1;min-width:0">
+  <div class="hd">
     <div class="projName" id="projName">&nbsp;</div>
     <div class="sub" id="visitSub">Loading…</div>
   </div>
-  <div style="display:flex;gap:6px;flex:0 0 auto">
-    <button class="ghost sm" id="btnPlans">Plans</button>
-  </div>
+  <a class="ghost sm" id="btnEdit" href="#" style="border-radius:9px;padding:7px 10px;font-size:13px;font-weight:600;
+     background:var(--card2);color:var(--fg);border:1px solid var(--line)">Edit</a>
+  <button class="sm" id="btnFinish">Finish</button>
 </header>
 
-<div class="nav item">
-  <button id="itemPrev" aria-label="Previous item">&#9664;</button>
-  <div class="label" id="itemLabel"><small>Item</small>—</div>
-  <button id="itemNext" aria-label="Next item">&#9654;</button>
-  <button class="danger itemDel" id="btnDelItem" title="Delete this item">&#128465;</button>
+<div class="counter">
+  <div class="lbl" id="itemLabel">—</div>
+  <button class="trash" id="btnDelItem" title="Delete this item">&#128465;</button>
 </div>
 
-<div class="photoBox" id="photoBox"></div>
-
-<div class="nav photo">
-  <button id="photoPrev" aria-label="Previous photo">&#8592;</button>
-  <div class="label idTag" id="photoLabel">—</div>
-  <button id="photoNext" aria-label="Next photo">&#8594;</button>
-</div>
-<div class="row" style="margin-top:8px">
-  <button id="btnTake">&#128247; Take photo</button>
-  <button class="danger" id="btnDelPhoto" style="flex:0 0 auto">&#128465;</button>
-</div>
-<input type="file" accept="image/*" capture="environment" id="camInput">
-<input type="file" accept="application/pdf,image/*" id="planInput">
-
-<div class="inc">
-  <div class="t">Include in report
-    <small id="incHint">This incident will appear in the Word report</small></div>
-  <label class="sw"><input type="checkbox" id="include" checked><span></span></label>
+<div class="stage">
+  <button class="arrow ghost" id="prev" aria-label="Previous item">&#9664;</button>
+  <button class="thumb" id="thumb" aria-label="Photo"></button>
+  <button class="arrow" id="next" aria-label="Next item">&#9654;</button>
 </div>
 
-<div class="card">
-  <h2>Location on plan <span style="text-transform:none;letter-spacing:0">(optional)</span></h2>
-  <div id="locBody"></div>
+<div class="tools">
+  <button class="tool" id="toolLoc" title="Pick location on plan">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.6 7-12a7 7 0 0 0-14 0c0 5.4 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>
+    <span id="locLbl">Location</span></button>
+  <button class="tool" id="toolCam" title="Take another photo of this item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    <span>Add photo</span></button>
+  <button class="tool" id="toolInc" title="Include in report">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path id="incTick" d="M8 12.5l3 3 5-6"/></svg>
+    <span id="incLbl">In report</span></button>
 </div>
 
-<div class="card">
-  <h2>Description</h2>
-  <textarea id="desc" placeholder="Type the description — or dictate it."></textarea>
-  <button class="wide dict" id="btnDictate" style="margin-top:8px">&#127908; Dictate</button>
-  <div class="msg" id="recMsg"></div>
+<div class="field">
+  <label for="desc">Item description</label>
+  <div class="tx"><textarea id="desc" placeholder="Type the description — or tap the mic."></textarea>
+    <button class="mic" id="micDesc" aria-label="Dictate the description"></button></div>
+  <div class="msg" id="descMsg"></div>
 </div>
 
-<div class="card">
-  <h2>Action <span style="text-transform:none;letter-spacing:0">(optional — makes this an action item)</span></h2>
-  <textarea id="action" placeholder="Type the action — or dictate it. e.g. The Contractor will install new headers per 4/S8.1."></textarea>
-  <button class="wide dict" id="btnDictateAct" style="margin-top:8px">&#127908; Dictate</button>
+<div class="field">
+  <label for="action">Action <small>(optional — makes this an action item)</small></label>
+  <div class="tx"><textarea id="action" placeholder="Type the action — or tap the mic."></textarea>
+    <button class="mic" id="micAct" aria-label="Dictate the action"></button></div>
   <div class="msg" id="actMsg"></div>
   <div id="axBox"></div>
 </div>
 
-<div class="card">
-  <h2>Importance</h2>
-  <div class="chips" id="impChips"></div>
+<div class="msg" id="status" style="text-align:center"></div>
 </div>
 
-<div class="card">
-  <h2>Tags</h2>
-  <input type="text" id="tags" placeholder="comma, separated, tags">
-</div>
+<input type="file" accept="image/*" capture="environment" id="camInput">
 
-<div class="msg" id="status"></div>
-</div>
-
-<div class="bar"><div class="wrap">
-  <button id="btnNewItem" style="flex:2">+ New item</button>
-  <button class="ghost" id="btnFinish" style="flex:1.4">Finish site visit</button>
-</div></div>
-
-<dialog id="addDlg">
-  <div class="dlgHead"><b>New photo in this item</b>
-    <button class="ghost sm" id="addCancel">Cancel</button></div>
-  <div class="dlgBody">
-    <button class="opt" id="optKeep"><b>Keep previous details</b>
-      <span id="keepPreview"></span></button>
-    <button class="opt" id="optClear"><b>Start blank</b>
-      <span>Empty description, Info, no location — a different incident.</span></button>
+<dialog id="viewDlg">
+  <div class="viewImg">
+    <img id="viewImg" alt="">
+    <button class="nav prev" id="viewPrev" aria-label="Previous photo">&#9664;</button>
+    <button class="nav next" id="viewNext" aria-label="Next photo">&#9654;</button>
+  </div>
+  <div class="viewBar">
+    <button id="viewKeep">Keep</button>
+    <button class="ghost" id="viewRetake">Retake</button>
+    <button class="del" id="viewDelete">Delete</button>
   </div>
 </dialog>
 
@@ -233,19 +205,21 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs";
 
 const $ = id => document.getElementById(id);
-const IMPORTANCE = ["Info","Minor","Major","Critical","Safety"];
-const esc = s => String(s).replace(/[&<>"']/g, c =>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const CAMERA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
+const STOP = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
 
-let items = [], plans = [], ii = 0, pi = 0;
-let visit = null, job = null;
-/* the printed number: ITEM <visit>.<entry number> */
+/* The screen walks the visit's entries: each is one ITEM with its own photos,
+   description and action. (An item group holds one entry; older visits may
+   hold several, and each still shows as its own ITEM.) */
+let items = [], plans = [], visit = null, job = null, ei = 0;
+let pendingLoc = null, retakeId = null, viewAt = 0;
+
+const entries = () => items.flatMap(it => it.photos.map(e => ({it, e})));
+const cur = () => entries()[ei] || null;
 const label = e => `${visit ? visit.visit_no : "?"}.${e.number}`;
-let pendingLoc = null;
-
-const item  = () => items[ii] || null;
-/* the incident: an item's photo entry */
-const entry = () => { const it = item(); return it && it.photos[pi] || null; };
 
 async function api(path, opts={}){
   const res = await fetch(path, opts);
@@ -260,221 +234,170 @@ const say = (t,c="") => { $('status').className = "msg "+c; $('status').textCont
 
 /* ---------------- render ---------------- */
 function render(){
-  const it = item(), e = entry();
-  const incidents = items.reduce((n,x)=>n+x.photos.length,0);
-  const included  = items.reduce((n,x)=>n+x.photos.filter(p=>p.include).length,0);
+  const all = entries(), c = cur();
+  const inReport = all.filter(x => x.e.include).length;
   $('visitSub').textContent = (visit ? `Site Visit ${visit.visit_no} · ` : "") +
-    `${items.length} item${items.length===1?"":"s"} · ${incidents} incident${incidents===1?"":"s"} · ${included} in report`;
-
-  $('itemLabel').innerHTML = it
-    ? `<small>Item</small>${it.photos.length ? it.photos.map(label).join(", ") : it.item_id}
-       <span style="color:var(--mut);font-weight:500;font-size:13px">${ii+1}/${items.length}</span>`
-    : `<small>Item</small>—`;
-  $('itemPrev').disabled = ii <= 0;
-  $('itemNext').disabled = ii >= items.length - 1;
-
-  if (!it){
-    $('photoBox').innerHTML =
-      `<div class="empty"><p>No items yet.</p><button id="first">+ New item</button></div>`;
-    $('first').onclick = newItem;
-    $('photoLabel').textContent = "—";
-    $('locBody').innerHTML = "";
-    ['photoPrev','photoNext','btnTake','btnDelPhoto','btnDelItem','include',
-     'desc','tags','btnDictate','btnDictateAct','action'].forEach(id => $(id).disabled = true);
-    $('axBox').innerHTML = "";
+    `${all.length} item${all.length===1?"":"s"} · ${inReport} in report`;
+  $('prev').disabled = ei <= 0;
+  const on = !!c;
+  ['btnDelItem','toolLoc','toolCam','toolInc','desc','action','micDesc','micAct']
+    .forEach(id => $(id).disabled = !on);
+  if (!c){
+    $('itemLabel').innerHTML = `No items yet`;
+    $('thumb').innerHTML = `<span class="add">${CAMERA}Add photo</span>`;
+    $('desc').value = ""; $('action').value = ""; $('axBox').innerHTML = "";
     return;
   }
-  ['photoPrev','photoNext','btnTake','btnDelPhoto','btnDelItem','include',
-   'desc','tags','btnDictate','btnDictateAct','action'].forEach(id => $(id).disabled = false);
+  const {e} = c;
+  $('itemLabel').innerHTML = `ITEM ${label(e)} <small>· ${ei+1}/${all.length}</small>`;
 
-  if (!e){
-    $('photoBox').innerHTML = `<div class="empty"><p>No photo entries.</p>
-      <button id="addFirst">&#128247; Take photo</button></div>`;
-    $('addFirst').onclick = () => addEntry("clear");
-    $('photoLabel').textContent = "—";
-    return;
-  }
+  const imgs = e.images || [];
+  $('thumb').innerHTML = imgs.length
+    ? `<img src="${imgs[0].thumb_url || imgs[0].url}" alt="ITEM ${label(e)}">
+       ${imgs.length > 1 ? `<span class="badge">1/${imgs.length}</span>` : ""}`
+    : `<span class="add">${CAMERA}Add photo</span>`;
 
-  /* image */
-  if (e.filename){
-    $('photoBox').innerHTML = `<img src="${e.url}" alt="">`;
-  } else {
-    $('photoBox').innerHTML = `<div class="empty">
-      <p>No image on ITEM ${label(e)} yet</p>
-      <button id="shootCam">&#128247; Take photo</button></div>`;
-    $('shootCam').onclick = takePhoto;
-  }
+  const plan = e.location && plans.find(p => p.plan_id === e.location.plan_id);
+  $('toolLoc').classList.toggle('on', !!e.location);
+  $('locLbl').textContent = e.location ? (plan ? shortName(plan.name) : "Located") : "Location";
+  $('toolInc').classList.toggle('on', e.include);
+  $('toolInc').classList.toggle('off', !e.include);
+  $('incTick').style.display = e.include ? "" : "none";
+  $('incLbl').textContent = e.include ? "In report" : "Excluded";
 
-  const n = it.photos.length;
-  $('photoLabel').innerHTML =
-    `ITEM ${label(e)} <span style="color:var(--mut);font-weight:500;font-size:12px">${pi+1}/${n}</span>`;
-  $('photoPrev').disabled = pi <= 0;
-  $('photoNext').disabled = pi >= n - 1;
-
-  /* per-incident fields */
-  $('include').checked = e.include;
-  $('incHint').textContent = e.include
-    ? "This incident will appear in the Word report"
-    : "Excluded — will NOT appear in the report";
   /* never overwrite a box mid-dictation or mid-typing */
-  if (dictating !== "desc") $('desc').value = e.description || "";
-  if (dictating !== "action" && document.activeElement !== $('action'))
-    $('action').value = e.action || "";
+  if (dictating !== "desc" && document.activeElement !== $('desc')) $('desc').value = e.description || "";
+  if (dictating !== "action" && document.activeElement !== $('action')) $('action').value = e.action || "";
   renderActions();
-  $('tags').value = (e.tags || []).join(", ");
-
-  $('impChips').innerHTML = IMPORTANCE.map(v =>
-    `<button class="chip" data-v="${v}" aria-pressed="${e.importance===v}">${v}</button>`).join("");
-  [...$('impChips').children].forEach(b => b.onclick = () => patch({importance:b.dataset.v}));
-
-  if (e.location){
-    const p = plans.find(x => x.plan_id === e.location.plan_id);
-    $('locBody').innerHTML =
-      `<div class="loc"><canvas id="locThumb" width="72" height="72"></canvas>
-       <div class="d"><b style="color:var(--fg)">${p?esc(p.name):"plan"}</b><br>
-       page ${e.location.page} · x ${e.location.x.toFixed(3)} · y ${e.location.y.toFixed(3)}</div>
-       <button class="ghost sm" id="locEdit">Change</button></div>`;
-    $('locEdit').onclick = openPlan;
-    const c = $('locThumb'), ctx = c.getContext('2d');
-    ctx.fillStyle="#8884"; ctx.fillRect(0,0,72,72);
-    ctx.fillStyle="#e5484d"; ctx.beginPath();
-    ctx.arc(e.location.x*72, e.location.y*72, 6, 0, 7); ctx.fill();
-    ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
-  } else {
-    $('locBody').innerHTML = `<button class="ghost wide" id="locPick">Pick location on plan</button>`;
-    $('locPick').onclick = openPlan;
-  }
 }
+const shortName = n => String(n || "").replace(/\.(pdf|png|jpe?g)$/i, "").slice(0, 12);
 
 /* updates and close-out, once the entry has a saved Action */
 function renderActions(){
-  const e = entry();
-  if (!e || !(e.action || "").trim() || !visit){ $('axBox').innerHTML = ""; return; }
+  const c = cur();
+  if (!c || !(c.e.action || "").trim() || !visit){ $('axBox').innerHTML = ""; return; }
   const latest = job && job.last_visit ? job.last_visit.visit_no : visit.visit_no;
   ActionUI.render($('axBox'), {
-    pid: visit.project_id, visit_no: visit.visit_no, photo_id: e.photo_id, label: label(e),
-    updates: e.updates, closed_visit_no: e.closed_visit_no,
+    pid: visit.project_id, visit_no: visit.visit_no, photo_id: c.e.photo_id, label: label(c.e),
+    updates: c.e.updates, closed_visit_no: c.e.closed_visit_no,
     default_visit_no: Math.max(latest, visit.visit_no + 1),
-  }, fresh => { Object.assign(e, fresh); renderActions(); });
+  }, fresh => { Object.assign(c.e, fresh); renderActions(); });
 }
 
 /* ---------------- data ---------------- */
 async function load(){
-  const cur = await api('/api/visits/current');
-  visit = cur.visit; job = cur.job;
-  const name = job ? job.name : "GFDS StrucObs";
-  $('projName').textContent = name;
-  document.title = `${name} SV${visit.visit_no} — GFDS StrucObs`;
+  const r = await api('/api/visits/current');
+  visit = r.visit; job = r.job;
+  $('projName').textContent = job ? job.name : "GFDS StrucObs";
+  document.title = `${job ? job.name : "GFDS StrucObs"} SV${visit.visit_no} — GFDS StrucObs`;
   if (job) $('backLink').href = `/projects/${job.job_id}`;
+  $('btnEdit').href = `/visits/${visit.project_id}/edit`;
   const d = await api('/api/visit');
   items = d.items; plans = d.plans;
-  if (ii >= items.length) ii = Math.max(0, items.length-1);
-  const it = item(); if (it && pi >= it.photos.length) pi = Math.max(0, it.photos.length-1);
+  ei = Math.min(ei, Math.max(0, entries().length - 1));
   render();
 }
 
-/* patch the current incident */
-async function patch(fields){
-  const it = item(), e = entry(); if (!it || !e) return;
-  Object.assign(e, await api(`/api/item/${it.item_id}/photo/${e.photo_id}`, {
-    method:"PATCH", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify(fields)}));
+/* save fields on an entry: the current one, or the one being typed in when
+   the save fires after the user has moved on */
+async function patch(fields, c = cur()){
+  if (!c) return;
+  Object.assign(c.e, await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}`, {
+    method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(fields)}));
   render();
 }
+
+const blank = e => !(e.images || []).length && !(e.description || "").trim() && !(e.action || "").trim();
 
 async function newItem(){
   const it = await api('/api/item', {method:"POST"});
-  items.push(it); ii = items.length-1; pi = 0;
-  render(); say(`Created ITEM ${label(it.photos[0])}`,"ok");
+  items.push(it); ei = entries().length - 1;
+  render(); say(`New ITEM ${label(it.photos[0])}`,"ok");
 }
 
-async function addEntry(mode){
-  const it = item(); if (!it) return;
-  const fd = new FormData(); fd.append("inherit", mode);
-  const e = await api(`/api/item/${it.item_id}/photo`, {method:"POST", body:fd});
-  it.photos.push(e); pi = it.photos.length-1;
-  render();
-  say(mode==="keep" ? `${e.photo_id} — details carried over.` : `${e.photo_id} — blank entry.`, "ok");
-  $('camInput').click();
-}
-
-$('itemPrev').onclick = () => { if (ii>0){ ii--; pi=0; render(); } };
-$('itemNext').onclick = () => { if (ii<items.length-1){ ii++; pi=0; render(); } };
-$('photoPrev').onclick = () => { if (pi>0){ pi--; render(); } };
-$('photoNext').onclick = () => { const it=item(); if (it&&pi<it.photos.length-1){ pi++; render(); } };
-$('btnNewItem').onclick = newItem;
+/* ---------------- navigation ---------------- */
+$('prev').onclick = () => { if (ei > 0){ stopDictation(); ei--; render(); } };
+/* ▶ goes to the next item; on the last one it starts a new item */
+$('next').onclick = async () => {
+  stopDictation();
+  const all = entries();
+  if (ei < all.length - 1){ ei++; return render(); }
+  if (all.length && blank(all[ei].e)) return say("This item is still empty — add a photo or a description first.","warn");
+  try{ await newItem(); }catch(err){ say(err.message,"bad"); }
+};
 
 $('btnDelItem').onclick = async () => {
-  const it = item(); if (!it) return;
-  const n = it.photos.length;
-  const withPhotos = it.photos.filter(p => p.filename).length;
-  const clips = it.photos.reduce((a,p) => a + (p.audio_clips||[]).length, 0);
-  const bits = [`${n} incident${n===1?"":"s"}`];
-  if (withPhotos) bits.push(`${withPhotos} photo${withPhotos===1?"":"s"}`);
-  if (clips) bits.push(`${clips} recording${clips===1?"":"s"}`);
-  if (!confirm(`Delete item ${it.item_id}?\n\n${bits.join(" · ")} will be permanently removed. This cannot be undone.`)) return;
-  await api(`/api/item/${it.item_id}`, {method:"DELETE"});
-  items.splice(ii,1);
-  if (ii >= items.length) ii = Math.max(0, items.length-1);
-  pi = 0;
-  render(); say(`Item ${it.item_id} deleted.`,"ok");
+  const c = cur(); if (!c) return;
+  const n = (c.e.images || []).length;
+  if (!confirm(`Delete ITEM ${label(c.e)}?\n\n${n ? `Its ${n} photo${n===1?"":"s"} and ` : "Its "}details will be permanently removed. This cannot be undone.`)) return;
+  try{
+    // the item group goes when this is its only entry; otherwise just the entry
+    if (c.it.photos.length > 1) await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}`, {method:"DELETE"});
+    else await api(`/api/item/${c.it.item_id}`, {method:"DELETE"});
+    await load(); say(`ITEM ${label(c.e)} deleted.`,"ok");
+  }catch(err){ say(err.message,"bad"); }
 };
 
-/* `capture` sends a phone straight into its camera app.
-   Empty entry -> fill it. Entry already has an image -> ask Keep/Clear first,
-   then take the new entry's photo. */
-function takePhoto(){
-  const e = entry();
-  if (!e) return addEntry("clear");
-  if (!e.filename) return $('camInput').click();
-  showAddDialog();
-}
-$('btnTake').onclick = takePhoto;
+/* ---------------- photos ---------------- */
+/* one photo per tap, straight from the phone's own camera app */
+function takePhoto(retake=null){ retakeId = retake; $('camInput').click(); }
 
-function showAddDialog(){
-  const e = entry();
-  const bits = [];
-  if (e.description) bits.push(`“${e.description.slice(0,42)}${e.description.length>42?"…":""}”`);
-  bits.push(e.importance);
-  if (e.location) bits.push("same plan location");
-  if ((e.tags||[]).length) bits.push(e.tags.join(", "));
-  $('keepPreview').textContent = "Carries over: " + bits.join(" · ") + ".";
-  $('addDlg').showModal();
-}
-$('addCancel').onclick = () => $('addDlg').close();
-$('optKeep').onclick  = () => { $('addDlg').close(); addEntry("keep"); };
-$('optClear').onclick = () => { $('addDlg').close(); addEntry("clear"); };
+$('thumb').onclick = async () => {
+  const c = cur();
+  if (!c){ await newItem(); return takePhoto(); }
+  if (!(c.e.images || []).length) return takePhoto();
+  openViewer(0);
+};
+$('toolCam').onclick = () => takePhoto();
 
-async function onPicked(ev){
-  const f = ev.target.files[0]; if (!f || !item()) return;
-  ev.target.value = "";
+$('camInput').onchange = async ev => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  const c = cur(); if (!f || !c) return;
   const fd = new FormData(); fd.append("photo", f);
-  /* name the entry: without it the server would pick the oldest imageless one */
-  const target = entry(); if (target && !target.filename) fd.append("photo_id", target.photo_id);
-  say("Uploading photo…","warn");
-  const e = await api(`/api/item/${item().item_id}/photo`, {method:"POST", body:fd});
-  const it = item(), at = it.photos.findIndex(p => p.photo_id === e.photo_id);
-  if (at >= 0) it.photos[at] = e; else it.photos.push(e);
-  pi = it.photos.findIndex(p => p.photo_id === e.photo_id);
-  render(); say(`Photo on ${e.photo_id}`,"ok");
-}
-$('camInput').onchange = onPicked;
-
-$('btnDelPhoto').onclick = async () => {
-  const it = item(), e = entry(); if (!e) return;
-  if (!confirm(`Delete incident ${e.photo_id}?\nIts photo, audio and details go with it.`)) return;
-  await api(`/api/item/${it.item_id}/photo/${e.photo_id}`, {method:"DELETE"});
-  it.photos.splice(pi,1); pi = Math.max(0, pi-1);
-  render(); say("Deleted.","ok");
+  say(retakeId ? "Replacing photo…" : "Uploading photo…","warn");
+  try{
+    const path = retakeId
+      ? `/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${retakeId}`
+      : `/api/item/${c.it.item_id}/photo`;
+    if (!retakeId) fd.append("photo_id", c.e.photo_id);
+    Object.assign(c.e, await api(path, {method:"POST", body:fd}));
+    const n = c.e.images.length;
+    say(retakeId ? "Photo replaced." : `Photo ${n} of ITEM ${label(c.e)} saved.`,"ok");
+    render();
+    if (retakeId && $('viewDlg').open) showView();
+  }catch(err){ say(err.message,"bad"); }
+  finally{ retakeId = null; }
 };
 
-$('include').onchange = ev => patch({include: ev.target.checked});
-let dT; $('desc').oninput = () => { clearTimeout(dT);
-  dT = setTimeout(()=>patch({description:$('desc').value}), 700); };
-let aT; $('action').oninput = () => { clearTimeout(aT);
-  aT = setTimeout(()=>patch({action:$('action').value}), 700); };
-let tT; $('tags').oninput = () => { clearTimeout(tT); tT = setTimeout(()=>
-  patch({tags: $('tags').value.split(",").map(s=>s.trim()).filter(Boolean)}), 700); };
+function openViewer(at){ viewAt = at; showView(); $('viewDlg').showModal(); }
+function showView(){
+  const imgs = cur().e.images;
+  viewAt = Math.min(viewAt, imgs.length - 1);
+  $('viewImg').src = imgs[viewAt].url;
+  $('viewPrev').hidden = viewAt <= 0;
+  $('viewNext').hidden = viewAt >= imgs.length - 1;
+}
+$('viewPrev').onclick = () => { viewAt--; showView(); };
+$('viewNext').onclick = () => { viewAt++; showView(); };
+$('viewKeep').onclick = () => $('viewDlg').close();
+$('viewRetake').onclick = () => takePhoto(cur().e.images[viewAt].image_id);
+$('viewDelete').onclick = async () => {
+  const c = cur(), im = c.e.images[viewAt];
+  if (!confirm("Delete this photo? This cannot be undone.")) return;
+  try{
+    Object.assign(c.e, await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${im.image_id}`,
+                                 {method:"DELETE"}));
+    if (!c.e.images.length) $('viewDlg').close(); else showView();
+    render(); say("Photo deleted.","ok");
+  }catch(err){ say(err.message,"bad"); }
+};
+
+/* ---------------- include, typing ---------------- */
+$('toolInc').onclick = () => { const c = cur(); if (c) patch({include: !c.e.include}); };
+let dT; $('desc').oninput = () => { clearTimeout(dT); const c = cur(), v = $('desc').value;
+  dT = setTimeout(()=>patch({description:v}, c), 700); };
+let aT; $('action').oninput = () => { clearTimeout(aT); const c = cur(), v = $('action').value;
+  aT = setTimeout(()=>patch({action:v}, c), 700); };
 
 /* ---------------- dictation ---------------- */
 
@@ -485,7 +408,7 @@ let tT; $('tags').oninput = () => { clearTimeout(tT); tT = setTimeout(()=>
    because Android capitalises and punctuates finalised entries, so an exact
    startsWith would miss the overlap and let the duplicates back in. */
 function speechKey(t){
-  return t.toLowerCase().replace(/[.,!?;:\u2019']/g, "").replace(/\s+/g, " ").trim();
+  return t.toLowerCase().replace(/[.,!?;:’']/g, "").replace(/\s+/g, " ").trim();
 }
 
 function assembleSpeech(results){
@@ -522,17 +445,19 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 /* one dictation at a time: which box it fills, and its button and message */
 let sr=null, dictating=null, baseText="", finalText="", wantMore=false;
 const DICTATE = {
-  desc:   {box:'desc',   btn:'btnDictate',    msg:'recMsg', field:'description'},
-  action: {box:'action', btn:'btnDictateAct', msg:'actMsg', field:'action'},
+  desc:   {box:'desc',   btn:'micDesc', msg:'descMsg', field:'description'},
+  action: {box:'action', btn:'micAct',  msg:'actMsg',  field:'action'},
 };
-const MIC = "&#127908; Dictate";
-if (!SR) [$('btnDictate'), $('btnDictateAct')].forEach(b => b.title = "This browser has no speech recognition");
+$('micDesc').innerHTML = MIC; $('micAct').innerHTML = MIC;
+if (!SR) [$('micDesc'), $('micAct')].forEach(b => b.title = "This browser has no speech recognition");
+
+function stopDictation(){ if (dictating){ wantMore = false; sr.stop(); } }
 
 function dictate(which){
   const d = DICTATE[which], note = (t,c) => { $(d.msg).className = "msg "+c; $(d.msg).textContent = t; };
-  if (!entry()) return say("Add an item first","bad");
+  if (!cur()) return say("Add an item first","bad");
   if (!SR) return note("No browser dictation — use the mic key on your keyboard.","bad");
-  if (dictating){ wantMore = false; sr.stop(); return; }   // either button stops it
+  if (dictating){ stopDictation(); return; }   // either mic stops it
   sr = new SR(); sr.lang = "en-US"; sr.interimResults = true;
   /* Chrome on Android duplicates finalised results when continuous is on, so
      run single-utterance there and restart on end while the user is still
@@ -544,8 +469,9 @@ function dictate(which){
   baseText = $(d.box).value;
   if (baseText && !/\s$/.test(baseText)) baseText += " ";
   finalText = "";
-  sr.onstart = () => { dictating = which; $(d.btn).textContent = "■ Stop dictating";
-    note("Listening — speak now.","warn"); };
+  const target = cur();          // the entry the words belong to, even if the user moves on
+  sr.onstart = () => { dictating = which; $(d.btn).innerHTML = STOP; $(d.btn).classList.add('live');
+    note("Listening — speak now. Tap ■ to stop.","warn"); };
   /* Rebuild from the whole results list every time: several mobile browsers
      report resultIndex as 0 on every event, and some repeat the whole
      transcript in every entry. assembleSpeech() copes with both. */
@@ -553,7 +479,8 @@ function dictate(which){
     const { fin, interim } = assembleSpeech(ev.results);
     finalText = fin;
     const spoken = (fin + (fin && interim ? " " : "") + interim);
-    $(d.box).value = baseText + spoken.replace(/\s+/g, " ").trimStart();
+    if (cur()?.e === target.e)
+      $(d.box).value = baseText + spoken.replace(/\s+/g, " ").trimStart();
   };
   sr.onerror = ev => {
     if (ev.error === "no-speech" && wantMore) return;   // restarting; stay quiet
@@ -562,43 +489,42 @@ function dictate(which){
       : ev.error==="no-speech" ? "Didn't catch anything — try again."
       : ev.error==="network" ? "Dictation needs a network connection."
       : "Dictation error: "+ev.error, "bad"); };
-  sr.onend = () => {
+  sr.onend = async () => {
     if (wantMore) {                      // single-utterance mode: keep listening
       const committed = (baseText + finalText).replace(/\s+/g, " ").trimStart();
       baseText = committed ? committed + " " : "";
       finalText = "";
       try { sr.start(); return; } catch (e) { /* fall through and stop */ }
     }
-    dictating = null; $(d.btn).innerHTML = MIC;
+    dictating = null; $(d.btn).innerHTML = MIC; $(d.btn).classList.remove('live');
     /* keep only finalised speech; drop any trailing interim guess */
-    $(d.box).value = (baseText + finalText.replace(/\s+/g, " ").trimStart()).trimEnd();
-    patch({[d.field]: $(d.box).value});
+    const text = (baseText + finalText.replace(/\s+/g, " ").trimStart()).trimEnd();
+    try{
+      Object.assign(target.e, await api(`/api/item/${target.it.item_id}/photo/${target.e.photo_id}`, {
+        method:"PATCH", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({[d.field]: text})}));
+    }catch(err){ return note(err.message, "bad"); }
+    render();
     if (!$(d.msg).classList.contains("bad"))
       note(finalText.trim() ? "Dictation saved." : "Nothing captured.", "ok");
   };
   try { sr.start(); }
   catch(err){ note("Could not start: "+err.message, "bad"); }
 }
-$('btnDictate').onclick = () => dictate("desc");
-$('btnDictateAct').onclick = () => dictate("action");
+$('micDesc').onclick = () => dictate("desc");
+$('micAct').onclick = () => dictate("action");
 
-/* ---------------- plans ---------------- */
-$('btnPlans').onclick = () => $('planInput').click();
-$('planInput').onchange = async ev => {
-  const f = ev.target.files[0]; if (!f) return; ev.target.value="";
-  const fd = new FormData(); fd.append("plan", f);
-  say("Uploading plan…","warn");
-  const p = await api('/api/plan',{method:"POST", body:fd});
-  plans.push(p); say(`Plan “${p.name}” uploaded`,"ok");
-};
-
+/* ---------------- location on plan ---------------- */
+$('toolLoc').onclick = openPlan;
 async function openPlan(){
-  if (!plans.length) return say("Upload a plan first — tap “Plans”.","bad");
+  if (!plans.length)
+    return say("No plans yet — add them on the project page: Edit → Plans.","bad");
   $('planSelect').innerHTML = plans.map(p =>
     `<option value="${p.plan_id}">${esc(p.name)} (${p.pages} page${p.pages===1?"":"s"})</option>`).join("");
-  const e = entry();
+  const e = cur().e;
   pendingLoc = e.location ? {...e.location} : null;
   if (pendingLoc) $('planSelect').value = pendingLoc.plan_id;
+  $('planPin').hidden = true;
   $('planDlg').showModal();
   await drawPlan();
 }
@@ -643,7 +569,7 @@ $('planDone').onclick = async () => { $('planDlg').close(); await patch({locatio
 
 /* back to the project page; the report is generated from there */
 $('btnFinish').onclick = async () => {
-  if (dictating){ wantMore = false; sr.stop(); }
+  stopDictation();
   try{ await api('/api/projects/close', {method:"POST"}); }catch(err){ /* leaving anyway */ }
   location.href = job ? `/projects/${job.job_id}` : "/";
 };
