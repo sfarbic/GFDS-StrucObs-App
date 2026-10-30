@@ -1,0 +1,84 @@
+{% extends "_base.html" %}
+{% block title %}Generate report — GFDS StrucObs{% endblock %}
+{% block style %}
+.pick{display:flex;align-items:flex-start;gap:12px;background:var(--card);border:1.5px solid var(--line);
+  border-radius:13px;padding:13px 14px;margin-bottom:10px;cursor:pointer}
+.pick:has(input:checked){border-color:var(--accent)}
+.pick input{margin:4px 0 0;width:18px;height:18px;accent-color:var(--accent);flex:0 0 auto}
+.pick .nm{font-weight:650}
+.pick .meta{color:var(--mut);font-size:12.5px}
+.pick .warn{color:var(--warn);font-size:12.5px}
+#status{text-align:center;font-size:13px;min-height:18px;margin-top:10px}
+#status.ok{color:var(--ok)}#status.bad{color:var(--bad)}#status.warn{color:var(--warn)}
+{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
+  <div class="t"><b>Generate report</b><small id="sub">&nbsp;</small></div>
+</div>
+
+<div class="sec">
+  <h2>Report for</h2>
+  <div id="visits"></div>
+</div>
+
+<div class="sec">
+  <button class="wide" id="btnGo" disabled>Generate report</button>
+  <div id="status"></div>
+  <div class="hint" style="text-align:center">Downloads a zip with the Word report, the photos and the marked-up plans.</div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+const JID = {{ jid|tojson }};
+let page = null;
+const status = (t, c="") => { $('status').className = c; $('status').textContent = t; };
+
+/* what Previous Action Items will print in this visit's report */
+const previousFor = v => page.action_items.filter(a => a.include && a.visit_no < v.visit_no
+  && (!a.closed_visit_no || a.closed_visit_no >= v.visit_no));
+const selected = () => page.visits.find(v => v.project_id ===
+  (document.querySelector('input[name=visit]:checked') || {}).value);
+
+function render(){
+  const j = page.job;
+  $('sub').textContent = `${j.number ? j.number + " · " : ""}${j.name}`;
+  if (!page.visits.length){
+    $('visits').innerHTML = `<div class="empty">Create a site visit before generating a report.<br>
+      <a href="/projects/${JID}/visits/new">+ New site visit</a></div>`;
+    return;
+  }
+  $('visits').innerHTML = page.visits.map((v, i) => {
+    const prev = previousFor(v).length;
+    const empty = !v.included && !prev;
+    return `<label class="pick"><input type="radio" name="visit" value="${v.project_id}" ${i ? "" : "checked"}>
+      <div><div class="nm">Site Visit ${v.visit_no} <span class="meta">· ${shortDate(v.visit_date)}</span></div>
+        <div class="meta">${v.included} item${v.included===1?"":"s"} in the report ·
+          ${prev} previous action item${prev===1?"":"s"}</div>
+        ${empty ? `<div class="warn">Nothing to report yet</div>` : ""}</div></label>`;
+  }).join("");
+  $('btnGo').disabled = false;
+}
+
+$('btnGo').onclick = async () => {
+  const v = selected(), btn = $('btnGo');
+  if (!v || btn.disabled) return;
+  if (!v.included && !previousFor(v).length &&
+      !confirm(`Site Visit ${v.visit_no} has no items in the report yet.\n\nGenerate it anyway?`)) return;
+  // two steps so a phone shows progress and a real error: build, then download
+  btn.disabled = true; btn.textContent = "Building…";
+  status(`Building the Site Visit ${v.visit_no} report… a big visit can take a minute.`, "warn");
+  try{
+    await api(`/api/projects/${v.project_id}/open`, {method:"POST"});
+    const r = await api('/api/export/build', {method:"POST"});
+    const mb = (r.bytes/1048576).toFixed(1);
+    location.href = r.url;
+    if (r.notice) status(`Report ready (${mb} MB), downloading — note: ${r.notice}.`, "warn");
+    else status(`Report ready (${mb} MB), downloading…`, "ok");
+  }catch(err){ status("Report failed: " + err.message, "bad"); }
+  finally{ btn.disabled = false; btn.textContent = "Generate report"; }
+};
+
+api(`/api/jobs/${JID}`).then(p => { page = p; render(); }).catch(e => status(e.message, "bad"));
+</script>
+{% endblock %}

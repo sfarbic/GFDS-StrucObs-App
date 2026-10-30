@@ -1171,6 +1171,14 @@ def visit_new_page(jid):
     return render_template("visit.html", jid=jid, pid=None)
 
 
+@app.route("/projects/<jid>/report")
+@require_pin
+def report_page(jid):
+    with _lock:
+        need_job(load_jobs(), jid)
+    return render_template("report.html", jid=jid)
+
+
 @app.route("/visits/<pid>/edit")
 @require_pin
 def visit_edit_page(pid):
