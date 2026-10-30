@@ -101,6 +101,154 @@ def build_report(project: Project, out_docx: Path) -> Path:
     return out_docx
 
 
+def build_action_log(title: str, info: list[tuple[str, str]], items: list[dict],
+                     out_docx: Path, *, template: Path | None = None,
+                     header: dict | None = None) -> Path:
+    """A table of action items, e.g. every one still open on a project,
+    written to out_docx. info is (label, value) lines printed under the
+    title; each item is {number, visit, description, location, action,
+    updates [{date, text}]}.
+
+    With a Jinja-tagged template the log keeps the template's letterhead,
+    headers and footers (filled from header, e.g. project_name, date_long)
+    and its title paragraph, retitled; everything else in its body goes.
+    Without one it is a plain landscape document."""
+    _require("docx", "python-docx")
+    from docx.shared import Pt
+
+    template = Path(template) if template else None
+    if template is not None and template.is_file() and _has_jinja_tags(template):
+        doc = _letterhead_doc(template, title, header or {})
+        heading = None
+    else:
+        doc = _plain_landscape_doc()
+        heading = title
+
+    w = _Writer(doc)
+    if heading:
+        p = doc.add_paragraph()
+        run = p.add_run(heading)
+        run.bold = True
+        run.font.size = Pt(16)
+    for label, value in info:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(0)
+        p.add_run(f"{label}  ").bold = True
+        p.add_run(value)
+    doc.add_paragraph()
+
+    # Item and Site Visit just wide enough; the three text columns share the rest
+    rest = max(3.0, w.text_w_in - 1.6) / 3
+    t = w._table(len(items) + 1, 5, w._fit([0.6, 1.0, rest, rest, rest]),
+                 ["Item", "Site Visit", "Description", "Action", "Updates"])
+    for r, it in enumerate(items, 1):
+        cells = t.rows[r].cells
+        cells[0].text = str(it.get("number", ""))
+        cells[1].text = str(it.get("visit", ""))
+        cells[2].text = it.get("description") or ""
+        if it.get("location"):
+            cells[2].add_paragraph("Location: " + it["location"]).runs[0].italic = True
+        cells[3].text = it.get("action") or ""
+        ups = it.get("updates") or []
+        cells[4].text = ""
+        for i, u in enumerate(ups):
+            para = cells[4].paragraphs[0] if i == 0 else cells[4].add_paragraph()
+            para.add_run(f"{u.get('date', '')} – ").bold = True
+            para.add_run(u.get("text") or "")
+        if not ups:
+            cells[4].paragraphs[0].add_run("None yet").italic = True
+        for cell in cells:
+            for para in cell.paragraphs:
+                para.paragraph_format.space_after = Pt(2)
+        _cant_split(t.rows[r])
+
+    doc.core_properties.title = title
+    out_docx = Path(out_docx)
+    out_docx.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(out_docx))
+    return out_docx
+
+
+def _plain_landscape_doc():
+    from docx import Document
+    from docx.enum.section import WD_ORIENT
+    from docx.shared import Inches, Pt
+
+    doc = Document()
+    normal = doc.styles["Normal"]
+    normal.font.name = "Arial"
+    normal.font.size = Pt(9.5)
+    s = doc.sections[0]
+    s.orientation = WD_ORIENT.LANDSCAPE
+    s.page_width, s.page_height = Inches(11), Inches(8.5)
+    for side in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+        setattr(s, side, Inches(0.75))
+    return doc
+
+
+def _letterhead_doc(template: Path, title: str, header: dict):
+    """The tagged template rendered with nothing but its header fields, cut
+    back to its title paragraph (retitled) so a different document can be
+    written under the firm's letterhead. Every section break before the
+    title stays, which is what puts the letterhead on page 1 and the running
+    header on the pages after it."""
+    _require("docxtpl", "docxtpl")
+    from docx.oxml.ns import qn
+    from docxtpl import DocxTemplate
+
+    tpl = DocxTemplate(str(template))
+    empty = {k: [] for k in ("stage_of_construction", "structural_elements_observed",
+                             "summary", "items", "previous_items", "action_items",
+                             "photo_log", "plans", "legend")}
+    tpl.render({**empty, **header}, autoescape=True)
+    doc = tpl.docx
+    body = doc.element.body
+    children = list(body)
+    at = next((i for i, el in enumerate(children) if el.tag == qn("w:p")
+               and "observation record" in "".join(el.itertext()).lower()), None)
+    if at is None:
+        raise ValueError("template has no 'Structural Observation Record' title")
+    title_p = children[at]
+    runs = title_p.findall(qn("w:r"))
+    for r in runs[1:]:
+        title_p.remove(r)
+    for t in runs[0].findall(qn("w:t"))[1:]:
+        runs[0].remove(t)
+    runs[0].find(qn("w:t")).text = title
+    # the template sets its font run by run, so what we write would fall back
+    # to Normal's: give Normal the font and size of the template's text
+    font = _run_font(doc.tables[0] if doc.tables else None)
+    for el in children[at + 1:]:
+        if el.tag != qn("w:sectPr"):
+            body.remove(el)
+    if font:
+        name, size = font
+        normal = doc.styles["Normal"]
+        if name:
+            normal.font.name = name
+            rpr = normal.element.get_or_add_rPr()
+            rfonts = rpr.find(qn("w:rFonts"))
+            for a in ("w:eastAsia", "w:cs"):
+                rfonts.set(qn(a), name)
+        if size:
+            normal.font.size = size
+    return doc
+
+
+def _run_font(table):
+    """(font name, size) of the first run in the template's info table, the
+    look of the record's ordinary text; None when there is no such run."""
+    if table is None:
+        return None
+    for row in table.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                for r in p.runs:
+                    if r.text.strip():
+                        return r.font.name, r.font.size
+    return None
+
+
 # ----------------------------------------------------------------------------
 # what goes in the report
 # ----------------------------------------------------------------------------

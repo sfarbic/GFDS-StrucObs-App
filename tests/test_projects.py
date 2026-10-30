@@ -196,3 +196,26 @@ def test_pages_render(client):
                  f"/projects/{jid}/visits/new", f"/projects/{jid}/report",
                  f"/visits/{v1['project_id']}/edit", "/capture"):
         assert client.get(path).status_code == 200, path
+
+
+def test_open_action_items_log_lists_only_unclosed_items(client):
+    jid = _job(client)["job_id"]
+    assert client.get(f"/api/jobs/{jid}/open-items.docx").status_code == 404   # no visits yet
+    v1 = _visit(client, jid, 1)
+    open_ = _entry(client, description="Missing hold-down", action="Install an HDU8.")
+    done = _entry(client, description="Header undersized", action="Install new headers.")
+    _entry(client, description="Observation only")
+    client.post(f"/api/visits/{v1['project_id']}/entries/{open_['photo_id']}/updates",
+                json={"text": "HDU8 on order.", "date": "2026-10-20"})
+    client.post(f"/api/visits/{v1['project_id']}/entries/{done['photo_id']}/updates",
+                json={"text": "Installed.", "close": True})
+
+    r = client.get(f"/api/jobs/{jid}/open-items.docx")
+
+    assert r.status_code == 200
+    assert 'Open Action Items.docx"' in r.headers["Content-Disposition"]
+    text = _text(Document(io.BytesIO(r.data)))
+    assert "Open Action Items" in text and "24-117" in text
+    assert "Missing hold-down" in text and "Install an HDU8." in text
+    assert "10/20/26 – HDU8 on order." in text
+    assert "Header undersized" not in text and "Observation only" not in text

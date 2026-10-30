@@ -8,6 +8,7 @@
 .pick .nm{font-weight:650}
 .pick .meta{color:var(--mut);font-size:12.5px}
 .pick .warn{color:var(--warn);font-size:12.5px}
+.meta{color:var(--mut);font-size:13.5px}
 #status{text-align:center;font-size:13px;min-height:18px;margin-top:10px}
 #status.ok{color:var(--ok)}#status.bad{color:var(--bad)}#status.warn{color:var(--warn)}
 {% endblock %}
@@ -26,6 +27,16 @@
   <button class="wide" id="btnGo" disabled>Generate report</button>
   <div id="status"></div>
   <div class="hint" style="text-align:center">Downloads a zip with the Word report, the photos and the marked-up plans.</div>
+</div>
+
+<div class="sec">
+  <h2>Open action items</h2>
+  <div class="card">
+    <div id="openInfo" class="meta">Loading…</div>
+    <button class="ghost wide" id="btnOpen" style="margin-top:12px" disabled>Generate open items report</button>
+    <div class="hint">A Word table of every action item not yet closed out, from all site
+      visits, with its updates.</div>
+  </div>
 </div>
 {% endblock %}
 {% block script %}
@@ -79,6 +90,21 @@ $('btnGo').onclick = async () => {
   finally{ btn.disabled = false; btn.textContent = "Generate report"; }
 };
 
-api(`/api/jobs/${JID}`).then(p => { page = p; render(); }).catch(e => status(e.message, "bad"));
+const openItems = () => page.action_items.filter(a => a.include && !a.closed_visit_no);
+function renderOpen(){
+  const items = openItems(), n = items.length;
+  const visits = [...new Set(items.map(a => a.visit_no))];
+  $('openInfo').textContent = n
+    ? `${n} open action item${n===1?"":"s"} from Site Visit${visits.length===1?"":"s"} ${visits.join(", ")}.`
+    : "No open action items — every action item is closed out.";
+  $('btnOpen').disabled = !n;
+}
+$('btnOpen').onclick = () => {
+  if (!openItems().length) return;
+  status("Downloading the open action items report…", "ok");
+  location.href = `/api/jobs/${JID}/open-items.docx`;
+};
+
+api(`/api/jobs/${JID}`).then(p => { page = p; render(); renderOpen(); }).catch(e => status(e.message, "bad"));
 </script>
 {% endblock %}

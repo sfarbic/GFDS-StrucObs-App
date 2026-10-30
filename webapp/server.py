@@ -915,12 +915,15 @@ def action_items(idx, jid):
     for p in visits:
         vno = _visit_no(p)
         data = load(p["project_id"])
+        plans = {pl["plan_id"]: pl for pl in data["plans"]}
         for it in sorted_items(data):
             for e in sorted_entries(it):
                 if not (e.get("action") or "").strip():
                     continue
                 out.append({
                     "pid": p["project_id"], "visit_no": vno, "photo_id": e["photo_id"],
+                    "visit_date": p.get("visit_date") or "",
+                    "location": _plan_place(plans, e.get("location")),
                     "number": e.get("number"), "label": entry_label(vno, e),
                     "description": e.get("description") or "", "action": e["action"],
                     "include": e.get("include", True), "updates": e.get("updates") or [],
@@ -1002,6 +1005,50 @@ def api_action_reopen(pid, photo_id):
             u["closes"] = False
         save(data, pid)
         return jsonify(e)
+
+
+@app.route("/api/jobs/<jid>/open-items.docx")
+@require_pin
+def api_open_items(jid):
+    """A Word log of every action item on the project not yet closed out,
+    oldest visit first, with all its updates."""
+    with _lock:
+        job = need_job(load_jobs(), jid)
+        items = [a for a in action_items(load_index(), jid)
+                 if a["include"] and not a["closed_visit_no"]]
+    if not items:
+        raise ApiError("this project has no open action items", 404)
+    from sitescribe import word_report
+    rows = [{"number": a["label"],
+             "visit": f"Site Visit {a['visit_no']}\n{_short_date(a['visit_date'])}",
+             "description": a["description"], "location": a["location"],
+             "action": a["action"],
+             "updates": [{"date": _short_date(u.get("date")), "text": u.get("text") or ""}
+                         for u in a["updates"]]}
+            for a in items]
+    now = _local()
+    info = [("Project:", job.get("name") or ""), ("Job No:", job.get("number") or ""),
+            ("Address:", job.get("address") or ""),
+            ("As of:", _short_date(now.strftime("%Y-%m-%d")))]
+    # the same letterhead, header and footer as the site visit report
+    header = {"project_name": job.get("name") or "", "project_address": job.get("address") or "",
+              "job_no": job.get("number") or "", "date_long": f"{now:%B} {now.day}, {now.year}",
+              "date_short": f"{now.month}/{now.day}/{now:%y}"}
+    name = f"{job.get('name') or jid} - Open Action Items"
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            out = word_report.build_action_log(
+                "Open Action Items", [i for i in info if i[1]], rows, Path(tmp) / "log.docx",
+                template=template_path() if has_template() else None, header=header)
+        except Exception as exc:
+            # a template that will not cut down must never cost the user the log
+            print(f"[sitescribe] open items on the template failed ({exc!r}); plain log",
+                  file=sys.stderr)
+            out = word_report.build_action_log("Open Action Items", [i for i in info if i[1]],
+                                               rows, Path(tmp) / "log.docx")
+        buf = io.BytesIO(Path(out).read_bytes())
+    return send_file(buf, mimetype=DOCX_MIME, as_attachment=True,
+                     download_name=re.sub(r'[\\/:*?"<>|]+', "_", name) + ".docx")
 
 
 def _short_date(iso):
