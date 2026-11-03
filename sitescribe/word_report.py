@@ -43,7 +43,8 @@ Report options read from project.report_options (all optional):
                           str                  tagged templates only; blank
                                                unless the engineer wrote them
     previous_items        [{number, description, location, action,
-                            updates [{date, text, closed, line}], closed}]
+                            updates [{date, text, closed, line, photos [path]}],
+                            closed}]  (tagged templates get updates[].photo_rows)
                                                earlier visits' action items,
                                                after this visit's observations
 
@@ -825,6 +826,11 @@ class _Writer:
             for u in it.get("updates") or []:
                 p = self._hanging(self.body(""))
                 p.add_run(f"Update:\t{u.get('date', '')} – {u.get('text') or ''}")
+                shots = [Path(x) for x in u.get("photos") or [] if Path(x).is_file()]
+                if shots:
+                    # the update's photos, laid out like an item's
+                    p.paragraph_format.keep_with_next = True
+                    self.photos(_Entry(Observation(), it.get("number", ""), shots))
 
     # -- 5. action items -----------------------------------------------------
     def action_items(self, entries: list[_Entry]):
@@ -999,6 +1005,13 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
             out.append(InlineImage(tpl, stream, **_photo_size(w, h, n, max_w)))
         return out
 
+    def update_rows(u: dict) -> list:
+        """An update's photos, two to a row, sized like an item's."""
+        shots = [Path(x) for x in u.get("photos") or [] if Path(x).is_file()]
+        rows = [shots[i:i + 2] for i in range(0, len(shots), 2)]
+        return [images(_Entry(Observation(), "", row), 2 if len(shots) > 1 else 1)
+                for row in rows]
+
     def photo_rows(e: _Entry) -> list:
         if len(e.photos) > 1 and e.obs.photo_layout == "stack":
             return [[img] for img in images(e, 1)]
@@ -1061,7 +1074,9 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         "summary": summary,
         "items": items,
         "previous_items": [dict(p, action_list=_action_parts(p.get("action", ""))[1],
-                                action=_action_parts(p.get("action", ""))[0])
+                                action=_action_parts(p.get("action", ""))[0],
+                                updates=[dict(u, photo_rows=update_rows(u))
+                                         for u in p.get("updates") or []])
                            for p in opts.get("previous_items") or []],
         "action_items": [{"number": i["number"], "severity": i["severity"],
                           "action": i["action"], "action_list": i["action_list"]}

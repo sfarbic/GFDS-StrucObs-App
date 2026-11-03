@@ -363,3 +363,32 @@ def test_sheet_numbers_name_the_location_and_head_the_plan_page(client):
     text = _report(client)
     assert "Location:\tS1.0" in text
     assert "Photo Locations" in text and "Martis Camp" in text and "06/27/2022" in text
+
+
+def test_an_update_can_carry_photos_that_print_under_it(client):
+    jid = _job(client)["job_id"]
+    v1 = _visit(client, jid, 1)
+    e = _entry(client, description="Header undersized", action="Install new headers.")
+    base = f"/api/visits/{v1['project_id']}/entries/{e['photo_id']}"
+    r = client.post(base + "/updates", content_type="multipart/form-data",
+                    data={"text": "Contractor photos of the new headers", "date": "2026-11-02",
+                          "close": "true",
+                          "photos": [(_jpeg("red"), "fix1.jpg"), (_jpeg("blue"), "fix2.jpg")]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    update = r.get_json()["updates"][0]
+    assert len(update["photos"]) == 2 and all(p["thumb_url"] for p in update["photos"])
+    assert r.get_json()["closed_visit_no"] == 2
+
+    _visit(client, jid, 2)
+    doc = Document(io.BytesIO(client.get("/api/export/docx").data))
+    text = _text(doc)
+    assert "Contractor photos of the new headers. No further action required." in text
+    pictures = len(list(doc.element.body.iter(
+        "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}inline")))
+    assert pictures == 2
+
+    # deleting the update takes its photos with it
+    files = [client.get(p["url"]).status_code for p in update["photos"]]
+    assert files == [200, 200]
+    client.delete(base + "/updates/0")
+    assert [client.get(p["url"]).status_code for p in update["photos"]] == [404, 404]

@@ -34,6 +34,18 @@
 #axDlg .ft .no{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
 #axDlg .ft .yes{background:var(--accent);color:var(--accent-fg);border:0}
 #axDlg .err{color:var(--bad);font-size:12.5px;min-height:16px;margin-top:6px}
+#axDlg{max-height:94dvh}
+#axDlg .bd{max-height:70dvh;overflow:auto}
+#axDlg .addShots{width:100%;padding:10px;border-radius:9px;font:inherit;font-size:13.5px;
+  font-weight:600;background:var(--card2);color:var(--fg);border:1px solid var(--line);cursor:pointer}
+/* update photos: thumbnails in the dialog and under each saved update */
+.shots{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.shots .sh{position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;
+  border:1px solid var(--line);background:var(--card2);display:block}
+.shots img{width:100%;height:100%;object-fit:cover;display:block}
+.shots .rm{position:absolute;top:2px;right:2px;width:22px;height:22px;padding:0;border-radius:50%;
+  background:rgba(0,0,0,.6);color:#fff;border:0;font-size:14px;line-height:1;cursor:pointer}
+.ax .up .shots .sh{width:56px;height:56px}
 </style>
 <dialog id="axDlg">
   <div class="hd" id="axTitle">Add update</div>
@@ -43,6 +55,10 @@
     <label for="axText">Update</label>
     <textarea id="axText" placeholder="e.g. Contractor photos show new headers installed per 4/S8.1."></textarea>
     <div class="pv" id="axPreview"></div>
+    <label>Photos <span style="font-weight:400;color:var(--mut)">(optional — print under the update)</span></label>
+    <button type="button" class="addShots" id="axAddShots">+ Add photos</button>
+    <input type="file" id="axShotInput" accept="image/*" multiple hidden>
+    <div class="shots" id="axShots"></div>
     <label for="axVisit">Appears in the report for Site Visit #</label>
     <input type="number" id="axVisit" min="1" step="1" inputmode="numeric">
     <div class="err" id="axErr"></div>
@@ -67,9 +83,22 @@ window.ActionUI = (() => {
     if (!res.ok) throw new Error(body.error || res.statusText);
     return body;
   }
-  let pending = null;
+  let pending = null, shots = [];
+  /* the photos picked for this update: from the camera or the photo library
+     (e.g. the contractor's), shown as thumbnails until saved */
+  function renderShots(){
+    g('axShots').querySelectorAll('img').forEach(i => URL.revokeObjectURL(i.src));
+    g('axShots').innerHTML = shots.map((f, i) => `<div class="sh">
+      <img src="${URL.createObjectURL(f)}" alt=""><button class="rm" data-i="${i}" title="Remove">&times;</button></div>`).join("");
+    g('axShots').querySelectorAll('.rm').forEach(b => b.onclick = () => {
+      shots.splice(+b.dataset.i, 1); renderShots(); });
+    g('axAddShots').textContent = shots.length ? "+ Add more photos" : "+ Add photos";
+  }
+  g('axAddShots').onclick = () => g('axShotInput').click();
+  g('axShotInput').onchange = ev => { shots.push(...ev.target.files); ev.target.value = ""; renderShots(); };
   function open(a, close, onChange){
     pending = {a, close, onChange};
+    shots = []; renderShots();
     g('axTitle').textContent = close ? `Close out item ${a.label}` : `Add update to item ${a.label}`;
     g('axDate').value = td(); g('axText').value = "";
     g('axVisit').value = a.default_visit_no; g('axVisit').min = a.visit_no + 1;
@@ -89,17 +118,35 @@ window.ActionUI = (() => {
   g('axCancel').onclick = () => g('axDlg').close();
   g('axSave').onclick = async () => {
     const {a, close, onChange} = pending;
+    const fields = {date: g('axDate').value, text: g('axText').value, visit_no: g('axVisit').value, close};
+    const url = `/api/visits/${a.pid}/entries/${a.photo_id}/updates`;
+    g('axSave').disabled = true;
     try{
-      const entry = await call(`/api/visits/${a.pid}/entries/${a.photo_id}/updates`, "POST",
-        {date: g('axDate').value, text: g('axText').value, visit_no: g('axVisit').value, close});
+      let entry;
+      if (shots.length){
+        // with photos the update goes as a form, the photos alongside
+        const fd = new FormData();
+        Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+        shots.forEach(f => fd.append("photos", f));
+        g('axErr').textContent = `Uploading ${shots.length} photo${shots.length === 1 ? "" : "s"}…`;
+        const res = await fetch(url, {method: "POST", body: fd});
+        entry = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(entry.error || res.statusText);
+      } else {
+        entry = await call(url, "POST", fields);
+      }
+      shots = []; renderShots();
       g('axDlg').close(); onChange(entry);
     }catch(err){ g('axErr').textContent = err.message; }
+    finally{ g('axSave').disabled = false; }
   };
   function render(el, a, onChange){
     const closed = a.closed_visit_no;
     el.innerHTML = `<div class="ax">
       ${(a.updates || []).map((u, i) => `<div class="up"><div class="ut">
           <b>Update ${sd(u.date)}:</b> ${e(u.text)}${u.closes ? ` <b>${CLOSE}</b>` : ""}
+          ${(u.photos || []).length ? `<div class="shots">${u.photos.map(p => `<a class="sh" href="${p.url}"
+            target="_blank"><img src="${p.thumb_url || p.url}" alt="" loading="lazy"></a>`).join("")}</div>` : ""}
           <span class="for">In the Site Visit ${u.visit_no} report</span></div>
           <button data-i="${i}" title="Delete this update">&times;</button></div>`).join("")}
       <div class="state">${closed
@@ -108,7 +155,7 @@ window.ActionUI = (() => {
       <div class="acts">${closed
         ? `<button class="reopen">Reopen</button>`
         : `<button class="add">+ Add update</button><button class="close">Close out</button>`}</div></div>`;
-    el.querySelectorAll('.up button').forEach(b => b.onclick = async () => {
+    el.querySelectorAll('.up > button').forEach(b => b.onclick = async () => {
       if (!confirm("Delete this update?")) return;
       try{ onChange(await call(`/api/visits/${a.pid}/entries/${a.photo_id}/updates/${b.dataset.i}`, "DELETE")); }
       catch(err){ alert(err.message); }

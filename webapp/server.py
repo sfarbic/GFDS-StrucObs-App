@@ -417,6 +417,9 @@ def entry_files(entry):
     names = [entry.get("filename")]
     for im in entry.get("images") or []:
         names += [im.get("filename"), _thumb_name(im)]
+    for u in entry.get("updates") or []:
+        for im in u.get("photos") or []:
+            names += [im.get("filename"), _thumb_name(im)]
     names += [c.get("filename") for c in entry.get("audio_clips") or []]
     return [n for n in names if n]
 
@@ -1196,29 +1199,57 @@ def _action_target(idx, p, body):
 @require_pin
 def api_action_update(pid, photo_id):
     """Add a dated update to an action item; with close=true it is the final
-    one, and the item prints for the last time in that update's report."""
-    body = request.get_json(silent=True) or {}
+    one, and the item prints for the last time in that update's report.
+    Sent as JSON, or as a form with `photos` files (e.g. the contractor's
+    photos of the fix), which print under the update."""
+    if request.files:
+        body = dict(request.form)
+        body["close"] = str(body.get("close", "")).lower() in ("true", "1", "yes")
+    else:
+        body = request.get_json(silent=True) or {}
+    files = [f for f in request.files.getlist("photos") if f and f.filename]
     text = _clean_text(body.get("text"))
     close = bool(body.get("close"))
-    if not text and not close:
+    if not text and not close and not files:
         raise ApiError("update text required")
     with _lock:
         idx = load_index()
         p = _need_visit(idx, pid)
         data = load(pid)
-        _, e = find_entry(data, photo_id)
+        it, e = find_entry(data, photo_id)
         if not (e.get("action") or "").strip():
             raise ApiError("only an item with an Action can take updates")
         if close and e.get("closed_visit_no"):
             raise ApiError(f"already closed in Site Visit {e['closed_visit_no']}")
         target = _action_target(idx, p, body)
-        e.setdefault("updates", []).append({
-            "date": _clean_date(body.get("date")), "text": text,
-            "visit_no": target, "closes": close, "created": _now()})
+        updates = e.setdefault("updates", [])
+        n = max((_trailing_num(u.get("update_id")) for u in updates), default=len(updates)) + 1
+        update = {"update_id": f"{photo_id}_U{n:02d}",
+                  "date": _clean_date(body.get("date")), "text": text,
+                  "visit_no": target, "closes": close, "created": _now(),
+                  "photos": _save_update_photos(files, f"{photo_id}_U{n:02d}",
+                                                it["item_id"], pid)}
+        updates.append(update)
         if close:
             e["closed_visit_no"] = target
         save(data, pid)
         return jsonify(e)
+
+
+def _save_update_photos(files, prefix, item_id, pid):
+    """Save an update's photos beside the item's own, each with a thumbnail."""
+    d = item_dir(item_id, pid)
+    os.makedirs(d, exist_ok=True)
+    out = []
+    for k, f in enumerate(files, 1):
+        image_id = f"{prefix}_{k:02d}"
+        filename = f"{image_id}_{secure_filename(f.filename) or 'photo.jpg'}"
+        f.save(os.path.join(d, filename))
+        im = {"image_id": image_id, "filename": filename,
+              "url": f"/uploads/{pid}/{item_id}/{filename}", "thumb_url": None}
+        _thumb(im, d, pid, item_id)
+        out.append(im)
+    return out
 
 
 @app.route("/api/visits/<pid>/entries/<photo_id>/updates/<int:n>", methods=["DELETE"])
@@ -1231,8 +1262,16 @@ def api_action_update_delete(pid, photo_id, n):
         updates = e.get("updates") or []
         if not 0 <= n < len(updates):
             raise ApiError(f"no such update: {n}", 404)
-        if updates.pop(n).get("closes"):
+        gone = updates.pop(n)
+        if gone.get("closes"):
             e["closed_visit_no"] = None   # removing the final update reopens it
+        it, _ = find_entry(data, photo_id)
+        for im in gone.get("photos") or []:
+            for name in (im.get("filename"), _thumb_name(im)):
+                try:
+                    os.remove(os.path.join(item_dir(it["item_id"], pid), name))
+                except (OSError, TypeError):
+                    pass
         save(data, pid)
         return jsonify(e)
 
@@ -1332,8 +1371,11 @@ def previous_items(idx, entry):
                     if note and note[-1] not in ".!?":
                         note += "."      # so the close-out reads as its own sentence
                     text = " ".join(t for t in (note, CLOSE_TEXT if closes else "") if t)
+                    folder = item_dir(it["item_id"], p["project_id"])
+                    photos = [os.path.join(folder, im["filename"]) for im in u.get("photos") or []
+                              if os.path.exists(os.path.join(folder, im.get("filename") or ""))]
                     updates.append({"date": _short_date(u.get("date")), "text": text,
-                                    "closed": closes,
+                                    "closed": closes, "photos": photos,
                                     "line": f"Update {_short_date(u.get('date'))}: {text}"})
                 out.append({"number": entry_label(pno, e), "visit_no": pno,
                             "description": (e.get("description") or "").strip(),
