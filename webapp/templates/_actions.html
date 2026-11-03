@@ -1,7 +1,11 @@
 {# Action-item updates and close-out, shared by the project page and the
-   items screen. Self-contained: window.ActionUI.render(el, item, onChange)
-   where item is {pid, visit_no, photo_id, label, updates, closed_visit_no,
-   default_visit_no}; onChange gets the entry back from the server. #}
+   items screen: window.ActionUI.render(el, item, onChange) where item is
+   {pid, visit_no, photo_id, label, description, action, updates,
+   closed_visit_no, default_visit_no}; onChange gets the entry back from the
+   server. + Add update and Close out open a full screen laid out like the
+   item screen: the photo box (camera, or the library), the update text with
+   a mic, the date and the report it goes in. Needs _photos.html and
+   _dictate.html included first. #}
 <style>
 .ax{margin-top:10px}
 .ax .up{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;padding:7px 0;
@@ -18,53 +22,70 @@
 .ax .acts .close{background:var(--ok);color:#fff;border:0}
 .ax .acts .reopen{background:transparent;color:var(--mut);border:1px solid var(--line)}
 .ax .state{font-size:12.5px;color:var(--mut);margin-top:6px}
-#axDlg{border:0;border-radius:14px;padding:0;background:var(--card);color:var(--fg);
-  width:min(480px,94vw)}
+#axDlg{border:0;padding:0;margin:0;width:100vw;height:100dvh;max-width:none;max-height:none;
+  background:var(--bg);color:var(--fg)}
 #axDlg::backdrop{background:rgba(0,0,0,.6)}
-#axDlg .hd{padding:12px 14px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
-#axDlg .bd{padding:14px}
-#axDlg label{display:block;font-size:13px;font-weight:600;margin:10px 0 5px}
-#axDlg label:first-child{margin-top:0}
-#axDlg input,#axDlg textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;
+#axDlg .ax-scr{display:flex;flex-direction:column;height:100%;max-width:560px;margin:0 auto}
+#axDlg .ax-hd{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
+#axDlg .ax-hd .t{flex:1;min-width:0}
+#axDlg .ax-hd b{display:block;font-size:16px}
+#axDlg .ax-hd small{color:var(--mut);font-size:12px}
+#axDlg .ax-x{background:transparent;color:var(--fg);border:0;font-size:24px;padding:0 6px;line-height:1;cursor:pointer}
+#axDlg .ax-bd{flex:1;overflow:auto;padding:12px 14px}
+#axDlg .ax-ref{font-size:13px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+#axDlg .ax-ref div+div{margin-top:3px}
+#axDlg .ax-ref b{color:var(--mut);font-weight:600}
+#axDlg .ax-photo{display:grid;margin:12px auto 0;width:min(100%,300px);
+  height:clamp(160px, calc(100dvh - 560px), 300px)}
+#axDlg label{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mut);font-weight:700;margin:14px 0 5px}
+#axDlg .ax-tx{display:flex;gap:8px;align-items:flex-start}
+#axDlg textarea,#axDlg input{width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;
   background:var(--bg);color:var(--fg);font:inherit}
-#axDlg textarea{min-height:84px}
+#axDlg textarea{min-height:76px;resize:vertical}
+#axDlg .ax-mic{flex:0 0 auto;width:48px;height:48px;padding:0;border-radius:11px;border:0;cursor:pointer;
+  display:grid;place-items:center;background:var(--accent);color:var(--accent-fg)}
+#axDlg .ax-mic svg{width:22px;height:22px}
+#axDlg .ax-mic.live{background:var(--bad)}
+#axDlg .ax-msg{font-size:12px;color:var(--mut);margin-top:5px;min-height:15px}
+#axDlg .ax-msg.ok{color:var(--ok)}#axDlg .ax-msg.bad{color:var(--bad)}#axDlg .ax-msg.warn{color:var(--warn)}
+#axDlg .ax-two{display:flex;gap:10px}#axDlg .ax-two>div{flex:1}
 #axDlg .pv{font-size:12.5px;color:var(--mut);margin-top:6px}
-#axDlg .ft{display:flex;gap:8px;padding:0 14px 14px}
-#axDlg .ft button{flex:1;padding:11px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer}
-#axDlg .ft .no{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
-#axDlg .ft .yes{background:var(--accent);color:var(--accent-fg);border:0}
-#axDlg .err{color:var(--bad);font-size:12.5px;min-height:16px;margin-top:6px}
-#axDlg{max-height:94dvh}
-#axDlg .bd{max-height:70dvh;overflow:auto}
-#axDlg .addShots{width:100%;padding:10px;border-radius:9px;font:inherit;font-size:13.5px;
-  font-weight:600;background:var(--card2);color:var(--fg);border:1px solid var(--line);cursor:pointer}
-/* update photos: thumbnails in the dialog and under each saved update */
-.shots{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.shots .sh{position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;
-  border:1px solid var(--line);background:var(--card2);display:block}
-.shots img{width:100%;height:100%;object-fit:cover;display:block}
-.shots .rm{position:absolute;top:2px;right:2px;width:22px;height:22px;padding:0;border-radius:50%;
-  background:rgba(0,0,0,.6);color:#fff;border:0;font-size:14px;line-height:1;cursor:pointer}
-.ax .up .shots .sh{width:56px;height:56px}
+#axDlg .err{color:var(--bad);font-size:12.5px;min-height:16px;margin-top:8px}
+#axDlg .ax-ft{display:flex;gap:8px;padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line)}
+#axDlg .ax-ft button{flex:1;padding:12px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+#axDlg .ax-ft .no{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+#axDlg .ax-ft .yes{background:var(--accent);color:var(--accent-fg);border:0}
+#axDlg .ax-ft .yes:disabled{opacity:.5}
+/* saved updates' photos, under each update */
+.ax .shots{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.ax .shots .sh{width:56px;height:56px;border-radius:8px;overflow:hidden;border:1px solid var(--line);
+  background:var(--card2);display:block}
+.ax .shots img{width:100%;height:100%;object-fit:cover;display:block}
 </style>
 <dialog id="axDlg">
-  <div class="hd" id="axTitle">Add update</div>
-  <div class="bd">
-    <label for="axDate">Date</label>
-    <input type="date" id="axDate">
-    <label for="axText">Update</label>
-    <textarea id="axText" placeholder="e.g. Contractor photos show new headers installed per 4/S8.1."></textarea>
-    <div class="pv" id="axPreview"></div>
-    <label>Photos <span style="font-weight:400;color:var(--mut)">(optional — print under the update)</span></label>
-    <button type="button" class="addShots" id="axAddShots">+ Add photos</button>
-    <input type="file" id="axShotInput" accept="image/*" multiple hidden>
-    <div class="shots" id="axShots"></div>
-    <label for="axVisit">Appears in the report for Site Visit #</label>
-    <input type="number" id="axVisit" min="1" step="1" inputmode="numeric">
-    <div class="err" id="axErr"></div>
+  <div class="ax-scr">
+    <div class="ax-hd"><div class="t"><b id="axTitle">Add update</b><small id="axSub"></small></div>
+      <button class="ax-x" id="axX" aria-label="Cancel">&times;</button></div>
+    <div class="ax-bd">
+      <div class="ax-ref" id="axRef"></div>
+      <button type="button" class="ax-photo" id="axPhoto" aria-label="Photos of the update"></button>
+      <label for="axText">Update</label>
+      <div class="ax-tx"><textarea id="axText" placeholder="Type the update — or tap the mic. e.g. Contractor photos show new headers installed per 4/S8.1."></textarea>
+        <button type="button" class="ax-mic" id="axMic" aria-label="Dictate the update"></button></div>
+      <div class="ax-msg" id="axMsg"></div>
+      <div class="pv" id="axPreview"></div>
+      <div class="ax-two">
+        <div><label for="axDate">Date</label><input type="date" id="axDate"></div>
+        <div><label for="axVisit">In report for SV #</label>
+          <input type="number" id="axVisit" min="1" step="1" inputmode="numeric"></div>
+      </div>
+      <div class="err" id="axErr"></div>
+    </div>
+    <div class="ax-ft"><button class="no" id="axCancel">Cancel</button>
+      <button class="yes" id="axSave">Save update</button></div>
   </div>
-  <div class="ft"><button class="no" id="axCancel">Cancel</button>
-    <button class="yes" id="axSave">Save</button></div>
 </dialog>
 <script>
 window.ActionUI = (() => {
@@ -83,26 +104,35 @@ window.ActionUI = (() => {
     if (!res.ok) throw new Error(body.error || res.statusText);
     return body;
   }
-  let pending = null, shots = [];
-  /* the photos picked for this update: from the camera or the photo library
-     (e.g. the contractor's), shown as thumbnails until saved */
-  function renderShots(){
-    g('axShots').querySelectorAll('img').forEach(i => URL.revokeObjectURL(i.src));
-    g('axShots').innerHTML = shots.map((f, i) => `<div class="sh">
-      <img src="${URL.createObjectURL(f)}" alt=""><button class="rm" data-i="${i}" title="Remove">&times;</button></div>`).join("");
-    g('axShots').querySelectorAll('.rm').forEach(b => b.onclick = () => {
-      shots.splice(+b.dataset.i, 1); renderShots(); });
-    g('axAddShots').textContent = shots.length ? "+ Add more photos" : "+ Add photos";
+  let pending = null, shots = [];      // shots: [{file, url}], on the phone until Save
+  const shotList = () => shots.map(x => ({url: x.url}));
+  const addShots = files => { shots.push(...files.map(file => ({file, url: URL.createObjectURL(file)}))); };
+  function dropShots(){ shots.forEach(x => URL.revokeObjectURL(x.url)); shots = []; }
+  function renderPhoto(){
+    Photos.box(g('axPhoto'), shotList(), {
+      onCamera: () => Photos.pick("camera", files => { addShots(files); renderPhoto(); }),
+      onLibrary: () => Photos.pick("library", files => { addShots(files); renderPhoto(); }),
+      onOpen: at => Photos.open({
+        title: (i, n) => `Update photo ${i + 1} of ${n}`,
+        list: shotList,
+        add: files => { addShots(files); renderPhoto(); },
+        retake: (i, file) => { URL.revokeObjectURL(shots[i].url);
+          shots[i] = {file, url: URL.createObjectURL(file)}; renderPhoto(); },
+        remove: i => { URL.revokeObjectURL(shots[i].url); shots.splice(i, 1); renderPhoto(); },
+      }, at),
+    });
   }
-  g('axAddShots').onclick = () => g('axShotInput').click();
-  g('axShotInput').onchange = ev => { shots.push(...ev.target.files); ev.target.value = ""; renderShots(); };
+
   function open(a, close, onChange){
     pending = {a, close, onChange};
-    shots = []; renderShots();
-    g('axTitle').textContent = close ? `Close out item ${a.label}` : `Add update to item ${a.label}`;
+    dropShots(); renderPhoto();
+    g('axTitle').textContent = close ? `Close out ITEM ${a.label}` : `Update ITEM ${a.label}`;
+    g('axSub').textContent = `Site Visit ${a.visit_no}`;
+    g('axRef').innerHTML = (a.description ? `<div>${e(a.description)}</div>` : "") +
+      `<div><b>Action:</b> ${e(a.action || "")}</div>`;
     g('axDate').value = td(); g('axText').value = "";
     g('axVisit').value = a.default_visit_no; g('axVisit').min = a.visit_no + 1;
-    g('axErr').textContent = "";
+    g('axErr').textContent = ""; g('axMsg').textContent = "";
     preview();
     g('axSave').textContent = close ? "Close out" : "Save update";
     g('axDlg').showModal();
@@ -115,9 +145,25 @@ window.ActionUI = (() => {
       : (t ? `Prints: Update ${sd(g('axDate').value)}: ${t}` : "");
   }
   g('axText').oninput = preview; g('axDate').oninput = preview;
-  g('axCancel').onclick = () => g('axDlg').close();
+
+  /* dictation into the update, the same mic as the item screen */
+  g('axMic').innerHTML = Dictate.MIC;
+  g('axMic').onclick = () => Dictate.toggle({box: g('axText'), btn: g('axMic'),
+    note: (t, cls) => { g('axMsg').className = "ax-msg " + cls; g('axMsg').textContent = t; },
+    onDone: text => { g('axText').value = text; preview(); }});
+
+  function shut(){
+    Dictate.stop();
+    if (shots.length && !confirm("Discard this update and its photos?")) return;
+    dropShots(); g('axDlg').close();
+  }
+  g('axCancel').onclick = shut;
+  g('axX').onclick = shut;
+  g('axDlg').addEventListener('cancel', ev => { ev.preventDefault(); shut(); });
+
   g('axSave').onclick = async () => {
     const {a, close, onChange} = pending;
+    Dictate.stop();
     const fields = {date: g('axDate').value, text: g('axText').value, visit_no: g('axVisit').value, close};
     const url = `/api/visits/${a.pid}/entries/${a.photo_id}/updates`;
     g('axSave').disabled = true;
@@ -127,7 +173,7 @@ window.ActionUI = (() => {
         // with photos the update goes as a form, the photos alongside
         const fd = new FormData();
         Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
-        shots.forEach(f => fd.append("photos", f));
+        shots.forEach(x => fd.append("photos", x.file));
         g('axErr').textContent = `Uploading ${shots.length} photo${shots.length === 1 ? "" : "s"}…`;
         const res = await fetch(url, {method: "POST", body: fd});
         entry = await res.json().catch(() => ({}));
@@ -135,8 +181,7 @@ window.ActionUI = (() => {
       } else {
         entry = await call(url, "POST", fields);
       }
-      shots = []; renderShots();
-      g('axDlg').close(); onChange(entry);
+      dropShots(); g('axDlg').close(); onChange(entry);
     }catch(err){ g('axErr').textContent = err.message; }
     finally{ g('axSave').disabled = false; }
   };

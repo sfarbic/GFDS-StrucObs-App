@@ -1,0 +1,111 @@
+{# Dictation into a text box, shared by the items screen and the action-item
+   update screen. One dictation at a time:
+     Dictate.toggle({box, btn, note(text, cls), onDone(text, heard), belongs()})
+   starts (or stops) filling `box`; `btn` shows the mic / stop icon; note()
+   reports progress; onDone gets the final text when it ends; belongs() says
+   whether live words may still go into the box (false once the user has
+   moved to another item). Dictate.stop(), Dictate.box (the box being
+   filled, or null), Dictate.MIC (the mic icon). #}
+<script>
+window.Dictate = (() => {
+  const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
+  const STOP = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  /* Fold a SpeechRecognition results list into {fin, interim}, tolerating both
+     fragment-per-entry and cumulative-per-entry browsers.
+
+     Comparison is done on a normalised copy (lowercased, punctuation stripped)
+     because Android capitalises and punctuates finalised entries, so an exact
+     startsWith would miss the overlap and let the duplicates back in. */
+  function speechKey(t){
+    return t.toLowerCase().replace(/[.,!?;:’']/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  function assembleSpeech(results){
+    const finals = [];
+    let interim = "";
+    for (let i = 0; i < results.length; i++){
+      const t = (results[i][0] && results[i][0].transcript || "").trim();
+      if (!t) continue;
+      if (results[i].isFinal) finals.push(t);
+      else interim = t;            // the newest interim IS the whole current guess
+    }
+
+    let fin = "";
+    for (const t of finals){
+      if (!fin){ fin = t; continue; }
+      const a = speechKey(fin), b = speechKey(t);
+      /* cumulative only when the entry is STRICTLY longer and extends what we
+         have; equal-length means the speaker genuinely repeated themselves */
+      if (b.length > a.length && b.startsWith(a)) fin = t;
+      else fin += " " + t;
+    }
+
+    /* an interim that merely restates the final adds nothing - but never let an
+       interim become the final when there is no final yet */
+    if (fin && interim){
+      const a = speechKey(fin), b = speechKey(interim);
+      if (b.length > a.length && b.startsWith(a)){ fin = interim; interim = ""; }
+      else if (a.endsWith(b)) interim = "";
+    }
+    return { fin, interim };
+  }
+
+  let sr = null, active = null, wantMore = false;
+
+  function stop(){ if (active){ wantMore = false; sr.stop(); } }
+
+  function toggle({box, btn, note = () => {}, onDone = () => {}, belongs = () => true}){
+    if (!SR) return note("No browser dictation — use the mic key on your keyboard.", "bad");
+    if (active){ stop(); return; }                      // any mic stops it
+    sr = new SR(); sr.lang = "en-US"; sr.interimResults = true;
+    /* Chrome on Android duplicates finalised results when continuous is on, so
+       run single-utterance there and restart on end while the user is still
+       dictating. Desktop keeps continuous for a smoother stream. */
+    sr.continuous = !/Android/i.test(navigator.userAgent);
+    wantMore = true;
+    /* keep what is already typed exactly, line breaks and all; only add a
+       separator when it does not already end in whitespace */
+    let baseText = box.value, finalText = "", failed = false;
+    if (baseText && !/\s$/.test(baseText)) baseText += " ";
+    sr.onstart = () => { active = box; btn.innerHTML = STOP; btn.classList.add('live');
+      note("Listening — speak now. Tap ■ to stop.", "warn"); };
+    /* Rebuild from the whole results list every time: several mobile browsers
+       report resultIndex as 0 on every event, and some repeat the whole
+       transcript in every entry. assembleSpeech() copes with both. */
+    sr.onresult = ev => {
+      const { fin, interim } = assembleSpeech(ev.results);
+      finalText = fin;
+      const spoken = (fin + (fin && interim ? " " : "") + interim);
+      if (belongs()) box.value = baseText + spoken.replace(/\s+/g, " ").trimStart();
+    };
+    sr.onerror = ev => {
+      if (ev.error === "no-speech" && wantMore) return;   // restarting; stay quiet
+      wantMore = false; failed = true;
+      note(ev.error === "not-allowed" ? "Microphone permission denied."
+        : ev.error === "no-speech" ? "Didn't catch anything — try again."
+        : ev.error === "network" ? "Dictation needs a network connection."
+        : "Dictation error: " + ev.error, "bad"); };
+    sr.onend = async () => {
+      if (wantMore){                     // single-utterance mode: keep listening
+        const committed = (baseText + finalText).replace(/\s+/g, " ").trimStart();
+        baseText = committed ? committed + " " : "";
+        finalText = "";
+        try { sr.start(); return; } catch (e) { /* fall through and stop */ }
+      }
+      active = null; btn.innerHTML = MIC; btn.classList.remove('live');
+      /* keep only finalised speech; drop any trailing interim guess */
+      const text = (baseText + finalText.replace(/\s+/g, " ").trimStart()).trimEnd();
+      const heard = !!finalText.trim();
+      try{ await onDone(text, heard); }
+      catch(err){ return note(err.message, "bad"); }
+      if (!failed) note(heard ? "Dictation saved." : "Nothing captured.", "ok");
+    };
+    try { sr.start(); }
+    catch(err){ note("Could not start: " + err.message, "bad"); }
+  }
+
+  return {toggle, stop, MIC, supported: !!SR, get box(){ return active; }};
+})();
+</script>

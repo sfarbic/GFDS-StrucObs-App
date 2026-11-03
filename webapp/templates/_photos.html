@@ -1,0 +1,148 @@
+{# Photos for an item or an action-item update, the same on both screens.
+
+   Photos.box(el, photos, {onCamera, onLibrary, onOpen}) draws the photo box:
+   empty, a tap opens the camera, with an "or choose from library" link; with
+   photos, the first one (whole) and a 1/3 badge, and a tap calls onOpen.
+
+   Photos.open(store, at) shows the photo screen: one photo large with Retake
+   and Delete, and Camera / Library to add more. store is
+     {title(i, n), list() -> [{url}], add(files), retake(i, file), remove(i)}
+   (add / retake / remove may be async), so the item screen can upload at
+   once while the update screen keeps photos on the phone until Save.
+
+   Photos.pick("camera" | "library", files => ...) opens the phone's camera
+   (one photo) or its photo library (several). On a computer both are the
+   file picker. #}
+<style>
+.pbox{position:relative;border-radius:14px;border:1px solid var(--line);background:var(--card2);
+  overflow:hidden;padding:0;display:grid;place-items:center;color:var(--mut);cursor:pointer;font:inherit}
+.pbox img{width:100%;height:100%;object-fit:contain;display:block}
+.pbox .pb-add{display:grid;place-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--mut)}
+.pbox .pb-add svg{width:46px;height:46px}
+.pbox .pb-lib{margin-top:6px;font-size:12.5px;font-weight:600;color:var(--accent);
+  text-decoration:underline;padding:6px 10px}
+.pbox .pb-badge{position:absolute;right:7px;bottom:7px;background:rgba(0,0,0,.65);color:#fff;
+  font-size:11.5px;font-weight:700;padding:2px 7px;border-radius:999px}
+
+#phDlg{border:0;padding:0;margin:auto;width:min(720px,100vw);max-width:100vw;max-height:100dvh;
+  border-radius:14px;background:var(--card);color:var(--fg)}
+#phDlg::backdrop{background:rgba(0,0,0,.75)}
+#phDlg .ph-hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#phDlg .ph-hd b{flex:1;font-size:15px}
+#phDlg .ph-x{background:transparent;color:var(--fg);border:0;font-size:22px;padding:0 6px;line-height:1;cursor:pointer}
+#phDlg .ph-img{position:relative;background:#000;display:grid;place-items:center;min-height:200px}
+#phDlg .ph-img img{max-width:100%;max-height:min(58dvh,560px);display:block}
+#phDlg .ph-nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;
+  border-radius:50%;padding:0;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:18px;cursor:pointer}
+#phDlg .ph-prev{left:8px}#phDlg .ph-next{right:8px}
+#phDlg .ph-row{display:flex;gap:8px;padding:12px 14px 0}
+#phDlg .ph-row button,#phDlg .ph-done{flex:1;padding:12px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+#phDlg .ph-ghost{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+#phDlg .ph-del{background:transparent;color:var(--bad);border:1px solid var(--line)}
+#phDlg .ph-add{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+#phDlg .ph-sep{border-top:1px solid var(--line);margin:12px 14px 0}
+#phDlg .ph-msg{font-size:12.5px;color:var(--mut);min-height:16px;padding:8px 14px 0;text-align:center}
+#phDlg .ph-done{display:block;width:calc(100% - 28px);margin:10px 14px 14px;background:var(--accent);
+  color:var(--accent-fg);border:0}
+#phDlg button:disabled{opacity:.45}
+</style>
+<dialog id="phDlg">
+  <div class="ph-hd"><b id="phTitle">Photos</b>
+    <button class="ph-x" id="phX" aria-label="Close">&times;</button></div>
+  <div class="ph-img">
+    <img id="phImg" alt="">
+    <button class="ph-nav ph-prev" id="phPrev" aria-label="Previous photo">&#9664;</button>
+    <button class="ph-nav ph-next" id="phNext" aria-label="Next photo">&#9654;</button>
+  </div>
+  <div class="ph-row">
+    <button class="ph-ghost" id="phRetake">Retake</button>
+    <button class="ph-del" id="phDelete">Delete</button>
+  </div>
+  <div class="ph-sep"></div>
+  <div class="ph-row">
+    <button class="ph-add" id="phCam">&#128247; Camera</button>
+    <button class="ph-add" id="phLib">&#128444; Library</button>
+  </div>
+  <div class="ph-msg" id="phMsg"></div>
+  <button class="ph-done" id="phDone">Done</button>
+</dialog>
+<input type="file" accept="image/*" capture="environment" id="phCamIn" hidden>
+<input type="file" accept="image/*" multiple id="phLibIn" hidden>
+<script>
+window.Photos = (() => {
+  const g = id => document.getElementById(id);
+  const CAMERA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+
+  /* the camera takes one photo; the library may give several */
+  function pick(source, done){
+    const inp = g(source === "camera" ? 'phCamIn' : 'phLibIn');
+    inp.onchange = ev => {
+      const files = [...ev.target.files]; ev.target.value = "";
+      if (files.length) done(files);
+    };
+    inp.click();
+  }
+
+  function box(el, photos, {onCamera, onLibrary, onOpen}){
+    el.classList.add('pbox');
+    el.innerHTML = photos.length
+      ? `<img src="${photos[0].thumb || photos[0].url}" alt="">
+         ${photos.length > 1 ? `<span class="pb-badge">1/${photos.length}</span>` : ""}`
+      : `<span class="pb-add">${CAMERA}Add photo<span class="pb-lib">or choose from library</span></span>`;
+    el.onclick = ev => {
+      if (!photos.length) return ev.target.closest('.pb-lib') ? onLibrary() : onCamera();
+      onOpen(0);
+    };
+  }
+
+  let store = null, at = 0, busy = false;
+  const note = t => { g('phMsg').textContent = t || ""; };
+  function show(){
+    const list = store.list();
+    if (!list.length){ close(); return; }
+    at = Math.max(0, Math.min(at, list.length - 1));
+    g('phImg').src = list[at].url;
+    g('phTitle').textContent = store.title(at, list.length);
+    g('phPrev').hidden = at <= 0;
+    g('phNext').hidden = at >= list.length - 1;
+  }
+  function open(s, start = 0){ store = s; at = start; note(""); show(); if (!g('phDlg').open) g('phDlg').showModal(); }
+  function close(){ if (g('phDlg').open) g('phDlg').close(); }
+
+  /* run one change through the store, with the buttons held while it works */
+  async function run(label, work){
+    if (busy) return;
+    busy = true; note(label);
+    g('phDlg').querySelectorAll('button').forEach(b => b.disabled = true);
+    try{ await work(); note(""); }
+    catch(err){ note(err.message); }
+    finally{
+      busy = false;
+      g('phDlg').querySelectorAll('button').forEach(b => b.disabled = false);
+      if (g('phDlg').open && store.list().length) show();
+      else close();
+    }
+  }
+
+  g('phPrev').onclick = () => { at--; show(); };
+  g('phNext').onclick = () => { at++; show(); };
+  g('phX').onclick = close;
+  g('phDone').onclick = close;
+  g('phRetake').onclick = () => pick("camera", files =>
+    run("Replacing photo…", () => store.retake(at, files[0])));
+  g('phDelete').onclick = () => {
+    if (!confirm("Delete this photo?")) return;
+    run("Deleting…", () => store.remove(at));
+  };
+  /* added photos go at the end; the screen then shows the last one */
+  const adder = source => () => pick(source, files =>
+    run(files.length > 1 ? `Adding ${files.length} photos…` : "Adding photo…", async () => {
+      await store.add(files);
+      at = store.list().length - 1;
+    }));
+  g('phCam').onclick = adder("camera");
+  g('phLib').onclick = adder("library");
+
+  return {box, open, pick, close};
+})();
+</script>

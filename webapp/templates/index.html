@@ -60,13 +60,8 @@ header a.sm{text-decoration:none;display:inline-block}
   height:clamp(180px, calc(100dvh - 490px), 460px);
   border:1px solid var(--line);background:var(--card2);overflow:hidden;padding:0;
   display:grid;place-items:center;color:var(--mut);cursor:pointer}
-.thumb img{width:100%;height:100%;object-fit:contain;display:block}
-.thumb .add{display:grid;place-items:center;gap:4px;font-size:13px;font-weight:600}
-.thumb .add svg{width:46px;height:46px}
-.thumb .badge{position:absolute;right:7px;bottom:7px;background:rgba(0,0,0,.65);color:#fff;
-  font-size:11.5px;font-weight:700;padding:2px 7px;border-radius:999px}
 
-/* 📍 📷 ☑ */
+/* 📍 ☑ (photos are added from the photo box) */
 .tools{display:flex;justify-content:center;gap:12px;margin-top:12px}
 .tool{display:grid;justify-items:center;gap:3px;width:84px;padding:8px 4px;border-radius:11px;
   background:var(--card);border:1px solid var(--line);color:var(--fg);font-size:11.5px;font-weight:600}
@@ -108,16 +103,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .zoomBtns button{width:38px;height:38px;padding:0;border-radius:9px;font-size:18px;
   background:rgba(255,255,255,.92);color:#14181d;border:1px solid var(--line)}
 
-/* full-size photo: Keep · Retake · Delete */
-#viewDlg{width:min(720px,96vw)}
-.viewImg{position:relative;background:#000;display:grid;place-items:center;min-height:200px}
-.viewImg img{max-width:100%;max-height:68vh;display:block}
-.viewImg .nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;
-  border-radius:50%;padding:0;background:rgba(0,0,0,.55);color:#fff;font-size:18px}
-.viewImg .prev{left:8px}.viewImg .next{right:8px}
-.viewBar{display:flex;gap:8px;padding:12px 14px}
-.viewBar button{flex:1}
-.viewBar .del{background:transparent;color:var(--bad);border:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -149,9 +134,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   <button class="tool" id="toolLoc" title="Pick location on plan">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.6 7-12a7 7 0 0 0-14 0c0 5.4 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>
     <span id="locLbl">Location</span></button>
-  <button class="tool" id="toolCam" title="Take another photo of this item">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-    <span>Add photo</span></button>
   <button class="tool" id="toolInc" title="Include in report">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path id="incTick" d="M8 12.5l3 3 5-6"/></svg>
     <span id="incLbl">In report</span></button>
@@ -174,21 +156,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
 <div class="msg" id="status" style="text-align:center"></div>
 </div>
-
-<input type="file" accept="image/*" capture="environment" id="camInput">
-
-<dialog id="viewDlg">
-  <div class="viewImg">
-    <img id="viewImg" alt="">
-    <button class="nav prev" id="viewPrev" aria-label="Previous photo">&#9664;</button>
-    <button class="nav next" id="viewNext" aria-label="Next photo">&#9654;</button>
-  </div>
-  <div class="viewBar">
-    <button id="viewKeep">Keep</button>
-    <button class="ghost" id="viewRetake">Retake</button>
-    <button class="del" id="viewDelete">Delete</button>
-  </div>
-</dialog>
 
 <dialog id="planDlg">
   <div class="dlgHead"><b id="planTitle">Tap the location</b>
@@ -218,6 +185,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   </div>
 </dialog>
 
+{% include "_dictate.html" %}
+{% include "_photos.html" %}
 {% include "_actions.html" %}
 
 <script type="module">
@@ -228,15 +197,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const CAMERA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
-const MIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
-const STOP = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
 
 /* The screen walks the visit's entries: each is one ITEM with its own photos,
    description and action. (An item group holds one entry; older visits may
    hold several, and each still shows as its own ITEM.) */
 let items = [], plans = [], visit = null, job = null, ei = 0;
-let pendingLoc = null, retakeId = null, viewAt = 0;
+let pendingLoc = null;
 
 const entries = () => items.flatMap(it => it.photos.map(e => ({it, e})));
 const cur = () => entries()[ei] || null;
@@ -261,22 +227,18 @@ function render(){
     `${all.length} item${all.length===1?"":"s"} · ${inReport} in report`;
   $('prev').disabled = ei <= 0;
   const on = !!c;
-  ['btnDelItem','toolLoc','toolCam','toolInc','desc','action','micDesc','micAct']
+  ['btnDelItem','toolLoc','toolInc','desc','action','micDesc','micAct']
     .forEach(id => $(id).disabled = !on);
   if (!c){
     $('itemLabel').innerHTML = `No items yet`;
-    $('thumb').innerHTML = `<span class="add">${CAMERA}Add photo</span>`;
+    renderPhotoBox();
     $('desc').value = ""; $('action').value = ""; $('axBox').innerHTML = "";
     return;
   }
   const {e} = c;
   $('itemLabel').innerHTML = `ITEM ${label(e)} <small>· ${ei+1}/${all.length}</small>`;
 
-  const imgs = e.images || [];
-  $('thumb').innerHTML = imgs.length
-    ? `<img src="${imgs[0].thumb_url || imgs[0].url}" alt="ITEM ${label(e)}">
-       ${imgs.length > 1 ? `<span class="badge">1/${imgs.length}</span>` : ""}`
-    : `<span class="add">${CAMERA}Add photo</span>`;
+  renderPhotoBox();
 
   const plan = e.location && plans.find(p => p.plan_id === e.location.plan_id);
   $('toolLoc').classList.toggle('on', !!e.location);
@@ -287,8 +249,8 @@ function render(){
   $('incLbl').textContent = e.include ? "In report" : "Excluded";
 
   /* never overwrite a box mid-dictation or mid-typing */
-  if (dictating !== "desc" && document.activeElement !== $('desc')) $('desc').value = e.description || "";
-  if (dictating !== "action" && document.activeElement !== $('action')) $('action').value = e.action || "";
+  if (Dictate.box !== $('desc') && document.activeElement !== $('desc')) $('desc').value = e.description || "";
+  if (Dictate.box !== $('action') && document.activeElement !== $('action')) $('action').value = e.action || "";
   renderActions();
 }
 const shortName = n => String(n || "").replace(/\.(pdf|png|jpe?g)$/i, "").slice(0, 12);
@@ -300,6 +262,7 @@ function renderActions(){
   const latest = job && job.last_visit ? job.last_visit.visit_no : visit.visit_no;
   ActionUI.render($('axBox'), {
     pid: visit.project_id, visit_no: visit.visit_no, photo_id: c.e.photo_id, label: label(c.e),
+    description: c.e.description, action: c.e.action,
     updates: c.e.updates, closed_visit_no: c.e.closed_visit_no,
     default_visit_no: Math.max(latest, visit.visit_no + 1),
   }, fresh => { Object.assign(c.e, fresh); renderActions(); });
@@ -337,10 +300,10 @@ async function newItem(){
 }
 
 /* ---------------- navigation ---------------- */
-$('prev').onclick = () => { if (ei > 0){ stopDictation(); ei--; render(); } };
+$('prev').onclick = () => { if (ei > 0){ Dictate.stop(); ei--; render(); } };
 /* ▶ goes to the next item; on the last one it starts a new item */
 $('next').onclick = async () => {
-  stopDictation();
+  Dictate.stop();
   const all = entries();
   if (ei < all.length - 1){ ei++; return render(); }
   if (all.length && blank(all[ei].e)) return say("This item is still empty — add a photo or a description first.","warn");
@@ -360,61 +323,65 @@ $('btnDelItem').onclick = async () => {
 };
 
 /* ---------------- photos ---------------- */
-/* one photo per tap, straight from the phone's own camera app */
-function takePhoto(retake=null){ retakeId = retake; $('camInput').click(); }
-
-$('thumb').onclick = async () => {
+/* The photo box: empty, a tap opens the camera (or the library link);
+   with photos, a tap opens the photo screen to retake, delete or add more.
+   Item photos upload as soon as they are taken. */
+const shots = e => (e.images || []).map(im => ({url: im.url, thumb: im.thumb_url || im.url}));
+function renderPhotoBox(){
   const c = cur();
-  if (!c){ await newItem(); return takePhoto(); }
-  if (!(c.e.images || []).length) return takePhoto();
-  openViewer(0);
-};
-$('toolCam').onclick = () => takePhoto();
-
-$('camInput').onchange = async ev => {
-  const f = ev.target.files[0]; ev.target.value = "";
-  const c = cur(); if (!f || !c) return;
-  // the first photo of an item with no pin goes straight on to its location
-  const askWhere = !retakeId && !(c.e.images || []).length && !c.e.location && plans.length > 0;
-  const fd = new FormData(); fd.append("photo", f);
-  say(retakeId ? "Replacing photo…" : "Uploading photo…","warn");
-  try{
-    const path = retakeId
-      ? `/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${retakeId}`
-      : `/api/item/${c.it.item_id}/photo`;
-    if (!retakeId) fd.append("photo_id", c.e.photo_id);
-    Object.assign(c.e, await api(path, {method:"POST", body:fd}));
-    const n = c.e.images.length;
-    say(retakeId ? "Photo replaced." : `Photo ${n} of ITEM ${label(c.e)} saved.`,"ok");
-    render();
-    if (retakeId && $('viewDlg').open) showView();
-    if (askWhere && cur()?.e === c.e) openPlan({after: true});
-  }catch(err){ say(err.message,"bad"); }
-  finally{ retakeId = null; }
-};
-
-function openViewer(at){ viewAt = at; showView(); $('viewDlg').showModal(); }
-function showView(){
-  const imgs = cur().e.images;
-  viewAt = Math.min(viewAt, imgs.length - 1);
-  $('viewImg').src = imgs[viewAt].url;
-  $('viewPrev').hidden = viewAt <= 0;
-  $('viewNext').hidden = viewAt >= imgs.length - 1;
+  Photos.box($('thumb'), c ? shots(c.e) : [], {
+    onCamera: () => addFrom("camera"),
+    onLibrary: () => addFrom("library"),
+    onOpen: at => Photos.open(photoStore(cur()), at),
+  });
 }
-$('viewPrev').onclick = () => { viewAt--; showView(); };
-$('viewNext').onclick = () => { viewAt++; showView(); };
-$('viewKeep').onclick = () => $('viewDlg').close();
-$('viewRetake').onclick = () => takePhoto(cur().e.images[viewAt].image_id);
-$('viewDelete').onclick = async () => {
-  const c = cur(), im = c.e.images[viewAt];
-  if (!confirm("Delete this photo? This cannot be undone.")) return;
-  try{
-    Object.assign(c.e, await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${im.image_id}`,
-                                 {method:"DELETE"}));
-    if (!c.e.images.length) $('viewDlg').close(); else showView();
-    render(); say("Photo deleted.","ok");
-  }catch(err){ say(err.message,"bad"); }
-};
+
+/* the first photos of an item: uploaded, then on to its location */
+function addFrom(source){
+  // open the picker straight from the tap (phones refuse it after a wait);
+  // a visit with no item yet gets one when the photo arrives
+  Photos.pick(source, async files => {
+    let c = cur();
+    try{ if (!c){ await newItem(); c = cur(); } }catch(err){ return say(err.message,"bad"); }
+    const askWhere = !(c.e.images || []).length && !c.e.location && plans.length > 0;
+    try{
+      await upload(c, files);
+      if (askWhere && cur()?.e === c.e) openPlan({after: true});
+    }catch(err){ say(err.message,"bad"); }
+  });
+}
+
+/* one after another, so they keep the order they were picked in */
+async function upload(c, files){
+  for (const [i, f] of files.entries()){
+    say(files.length > 1 ? `Uploading photo ${i + 1} of ${files.length}…` : "Uploading photo…","warn");
+    const fd = new FormData(); fd.append("photo", f); fd.append("photo_id", c.e.photo_id);
+    Object.assign(c.e, await api(`/api/item/${c.it.item_id}/photo`, {method:"POST", body:fd}));
+  }
+  render();
+  say(`${files.length > 1 ? files.length + " photos" : "Photo"} saved to ITEM ${label(c.e)}.`,"ok");
+}
+
+/* the photo screen's view of an item: changes go to the server at once */
+function photoStore(c){
+  const im = i => c.e.images[i];
+  return {
+    title: (i, n) => `ITEM ${label(c.e)} · photo ${i + 1} of ${n}`,
+    list: () => shots(c.e),
+    add: files => upload(c, files),
+    retake: async (i, f) => {
+      const fd = new FormData(); fd.append("photo", f);
+      Object.assign(c.e, await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${im(i).image_id}`,
+                                   {method:"POST", body:fd}));
+      render(); say("Photo replaced.","ok");
+    },
+    remove: async i => {
+      Object.assign(c.e, await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${im(i).image_id}`,
+                                   {method:"DELETE"}));
+      render(); say("Photo deleted.","ok");
+    },
+  };
+}
 
 /* ---------------- include, typing ---------------- */
 $('toolInc').onclick = () => { const c = cur(); if (c) patch({include: !c.e.include}); };
@@ -424,119 +391,23 @@ let aT; $('action').oninput = () => { clearTimeout(aT); const c = cur(), v = $('
   aT = setTimeout(()=>patch({action:v}, c), 700); };
 
 /* ---------------- dictation ---------------- */
-
-/* Fold a SpeechRecognition results list into {fin, interim}, tolerating both
-   fragment-per-entry and cumulative-per-entry browsers.
-
-   Comparison is done on a normalised copy (lowercased, punctuation stripped)
-   because Android capitalises and punctuates finalised entries, so an exact
-   startsWith would miss the overlap and let the duplicates back in. */
-function speechKey(t){
-  return t.toLowerCase().replace(/[.,!?;:’']/g, "").replace(/\s+/g, " ").trim();
-}
-
-function assembleSpeech(results){
-  const finals = [];
-  let interim = "";
-  for (let i = 0; i < results.length; i++){
-    const t = (results[i][0] && results[i][0].transcript || "").trim();
-    if (!t) continue;
-    if (results[i].isFinal) finals.push(t);
-    else interim = t;            // the newest interim IS the whole current guess
-  }
-
-  let fin = "";
-  for (const t of finals){
-    if (!fin){ fin = t; continue; }
-    const a = speechKey(fin), b = speechKey(t);
-    /* cumulative only when the entry is STRICTLY longer and extends what we
-       have; equal-length means the speaker genuinely repeated themselves */
-    if (b.length > a.length && b.startsWith(a)) fin = t;
-    else fin += " " + t;
-  }
-
-  /* an interim that merely restates the final adds nothing - but never let an
-     interim become the final when there is no final yet */
-  if (fin && interim){
-    const a = speechKey(fin), b = speechKey(interim);
-    if (b.length > a.length && b.startsWith(a)){ fin = interim; interim = ""; }
-    else if (a.endsWith(b)) interim = "";
-  }
-  return { fin, interim };
-}
-
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-/* one dictation at a time: which box it fills, and its button and message */
-let sr=null, dictating=null, baseText="", finalText="", wantMore=false;
-const DICTATE = {
-  desc:   {box:'desc',   btn:'micDesc', msg:'descMsg', field:'description'},
-  action: {box:'action', btn:'micAct',  msg:'actMsg',  field:'action'},
-};
-$('micDesc').innerHTML = MIC; $('micAct').innerHTML = MIC;
-if (!SR) [$('micDesc'), $('micAct')].forEach(b => b.title = "This browser has no speech recognition");
-
-function stopDictation(){ if (dictating){ wantMore = false; sr.stop(); } }
-
-function dictate(which){
-  const d = DICTATE[which], note = (t,c) => { $(d.msg).className = "msg "+c; $(d.msg).textContent = t; };
-  if (!cur()) return say("Add an item first","bad");
-  if (!SR) return note("No browser dictation — use the mic key on your keyboard.","bad");
-  if (dictating){ stopDictation(); return; }   // either mic stops it
-  sr = new SR(); sr.lang = "en-US"; sr.interimResults = true;
-  /* Chrome on Android duplicates finalised results when continuous is on, so
-     run single-utterance there and restart on end while the user is still
-     dictating. Desktop keeps continuous for a smoother stream. */
-  sr.continuous = !/Android/i.test(navigator.userAgent);
-  wantMore = true;
-  /* keep what is already typed exactly, line breaks and all; only add a
-     separator when it does not already end in whitespace */
-  baseText = $(d.box).value;
-  if (baseText && !/\s$/.test(baseText)) baseText += " ";
-  finalText = "";
-  const target = cur();          // the entry the words belong to, even if the user moves on
-  sr.onstart = () => { dictating = which; $(d.btn).innerHTML = STOP; $(d.btn).classList.add('live');
-    note("Listening — speak now. Tap ■ to stop.","warn"); };
-  /* Rebuild from the whole results list every time: several mobile browsers
-     report resultIndex as 0 on every event, and some repeat the whole
-     transcript in every entry. assembleSpeech() copes with both. */
-  sr.onresult = ev => {
-    const { fin, interim } = assembleSpeech(ev.results);
-    finalText = fin;
-    const spoken = (fin + (fin && interim ? " " : "") + interim);
-    if (cur()?.e === target.e)
-      $(d.box).value = baseText + spoken.replace(/\s+/g, " ").trimStart();
-  };
-  sr.onerror = ev => {
-    if (ev.error === "no-speech" && wantMore) return;   // restarting; stay quiet
-    wantMore = false;
-    note(ev.error==="not-allowed" ? "Microphone permission denied."
-      : ev.error==="no-speech" ? "Didn't catch anything — try again."
-      : ev.error==="network" ? "Dictation needs a network connection."
-      : "Dictation error: "+ev.error, "bad"); };
-  sr.onend = async () => {
-    if (wantMore) {                      // single-utterance mode: keep listening
-      const committed = (baseText + finalText).replace(/\s+/g, " ").trimStart();
-      baseText = committed ? committed + " " : "";
-      finalText = "";
-      try { sr.start(); return; } catch (e) { /* fall through and stop */ }
-    }
-    dictating = null; $(d.btn).innerHTML = MIC; $(d.btn).classList.remove('live');
-    /* keep only finalised speech; drop any trailing interim guess */
-    const text = (baseText + finalText.replace(/\s+/g, " ").trimStart()).trimEnd();
-    try{
+/* the words go to the item the mic was tapped on, even if the user moves on */
+$('micDesc').innerHTML = Dictate.MIC; $('micAct').innerHTML = Dictate.MIC;
+if (!Dictate.supported) [$('micDesc'), $('micAct')].forEach(b => b.title = "This browser has no speech recognition");
+function dictate(box, btn, msg, field){
+  const note = (t, cls) => { $(msg).className = "msg " + cls; $(msg).textContent = t; };
+  const target = cur();
+  if (!target) return say("Add an item first","bad");
+  Dictate.toggle({box: $(box), btn: $(btn), note,
+    belongs: () => cur()?.e === target.e,
+    onDone: async text => {
       Object.assign(target.e, await api(`/api/item/${target.it.item_id}/photo/${target.e.photo_id}`, {
-        method:"PATCH", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({[d.field]: text})}));
-    }catch(err){ return note(err.message, "bad"); }
-    render();
-    if (!$(d.msg).classList.contains("bad"))
-      note(finalText.trim() ? "Dictation saved." : "Nothing captured.", "ok");
-  };
-  try { sr.start(); }
-  catch(err){ note("Could not start: "+err.message, "bad"); }
+        method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({[field]: text})}));
+      render();
+    }});
 }
-$('micDesc').onclick = () => dictate("desc");
-$('micAct').onclick = () => dictate("action");
+$('micDesc').onclick = () => dictate('desc', 'micDesc', 'descMsg', 'description');
+$('micAct').onclick = () => dictate('action', 'micAct', 'actMsg', 'action');
 
 /* ---------------- location on plan ---------------- */
 /* The last sheet a pin went on, per visit, so the next item opens there. */
@@ -728,7 +599,7 @@ $('planDone').onclick = async () => {
 
 /* back to the project page; the report is generated from there */
 $('btnFinish').onclick = async () => {
-  stopDictation();
+  Dictate.stop();
   try{ await api('/api/projects/close', {method:"POST"}); }catch(err){ /* leaving anyway */ }
   location.href = job ? `/projects/${job.job_id}` : "/";
 };
