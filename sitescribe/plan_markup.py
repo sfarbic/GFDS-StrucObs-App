@@ -5,8 +5,9 @@ Suggested library: PyMuPDF (draw directly on the original PDF pages)
 
 sheet_image_with_pins draws on the sheet's rendered PNG with Pillow: a
 filled circle per pin, red for an open action item and gray otherwise
-(models.pin_color), the ITEM number in white, and a legend in the top-left
-corner. Pins that share a number and a spot are drawn once.
+(models.pin_color), the ITEM number in white, and a legend in a white band
+added above the sheet, so it never covers the drawing. Pins that share a
+number and a spot are drawn once.
 """
 
 from __future__ import annotations
@@ -56,18 +57,28 @@ def sheet_image_with_pins(project: Project, sheet_id: str, out_png: Path) -> Pat
         f = font if len(text) <= 2 else _font(round(radius * 1.1 * 2.4 / len(text)))
         draw.text((cx, cy), text, fill="white", font=f, anchor="mm")
 
-    _legend(draw, radius, font)
-    image.save(out_png)
+    # the legend goes in a band above the sheet, clear of the drawing
+    _, box_h = _legend_size(draw, radius, font)
+    band = box_h + radius * 2
+    out = Image.new("RGB", (width, height + band), "white")
+    out.paste(image, (0, band))
+    _legend(ImageDraw.Draw(out), radius, font)
+    out.save(out_png)
     return out_png
+
+
+def _legend_size(draw, radius: int, font) -> tuple[int, int]:
+    pad, row, dot = radius, round(radius * 2.4), round(radius * 0.7)
+    text_width = max(draw.textlength(name, font=font) for name, _ in PIN_LEGEND)
+    return (round(pad * 3 + dot * 2 + text_width),
+            pad * 2 + row * (len(PIN_LEGEND) - 1) + dot * 2)
 
 
 def _legend(draw, radius: int, font) -> None:
     pad = radius
     row = round(radius * 2.4)
     dot = round(radius * 0.7)
-    text_width = max(draw.textlength(name, font=font) for name, _ in PIN_LEGEND)
-    box_w = pad * 3 + dot * 2 + text_width
-    box_h = pad * 2 + row * (len(PIN_LEGEND) - 1) + dot * 2
+    box_w, box_h = _legend_size(draw, radius, font)
     draw.rectangle((0, 0, box_w, box_h), fill="white", outline="#333333", width=2)
     for i, (name, color) in enumerate(PIN_LEGEND):
         cx, cy = pad + dot, pad + dot + i * row

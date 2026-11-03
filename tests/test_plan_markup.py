@@ -27,13 +27,15 @@ def test_pins_red_while_open_gray_otherwise(tmp_path):
 
     assert out == tmp_path / "out" / "s201.png"
     with Image.open(out) as image:
-        assert image.size == (2000, 1000)
+        # the sheet sits under a band that holds the legend, clear of the drawing
+        assert image.size[0] == 2000 and image.size[1] > 1000
+        top = image.size[1] - 1000
         radius = round(1000 * 0.018)
         # just inside the circle, clear of the white number in the middle
-        assert image.getpixel((1000, 500 + radius - 4)) == _rgb(PIN_OPEN)
-        assert image.getpixel((1600, 700 + radius - 4)) == _rgb(PIN_DONE)
+        assert image.getpixel((1000, top + 500 + radius - 4)) == _rgb(PIN_OPEN)
+        assert image.getpixel((1600, top + 700 + radius - 4)) == _rgb(PIN_DONE)
         # the other sheet's pin is not on this one
-        assert image.getpixel((500, 250 + radius - 4)) == (255, 255, 255)
+        assert image.getpixel((500, top + 250 + radius - 4)) == (255, 255, 255)
         # legend in the top-left corner
         assert image.getpixel((radius + round(radius * 0.7), radius + round(radius * 0.7))) == \
             _rgb(PIN_OPEN)

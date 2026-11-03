@@ -79,9 +79,12 @@ def _record(zf, name):
 def _pin_color(zf, name, x, y):
     with Image.open(zf.open(name)) as image:
         w, h = image.size
+        # the 1200 x 800 sheet sits under the legend band at the top
+        plan_h = round(w * 800 / 1200)
+        top = h - plan_h
         # halfway out from the centre: inside the pin, clear of the number and the white rim
-        offset = round(min(w, h) * 0.018) * 2 // 3
-        return image.convert("RGB").getpixel((round(x * w), round(y * h) + offset))
+        offset = round(min(w, plan_h) * 0.018) * 2 // 3
+        return image.convert("RGB").getpixel((round(x * w), top + round(y * plan_h) + offset))
 
 
 def test_bundle_has_report_tagged_photos_and_pinned_plans(client):

@@ -413,6 +413,39 @@ def _plan_image(project: Project, sheet: PlanSheet, entries: list[_Entry],
     return _draw_pins(sheet, entries, out), False
 
 
+def _plan_on_page(img: Path, avail_w_in: float, avail_h_in: float) -> tuple[io.BytesIO, dict]:
+    """A marked-up plan as large as the page area allows: (image stream,
+    InlineImage/add_picture size). A plan that comes out bigger turned a
+    quarter turn (a landscape sheet on a portrait page) is rotated
+    counter-clockwise, so it reads from the page's right edge."""
+    from docx.shared import Inches
+    from PIL import Image
+
+    stream, w, h = _image_stream(img, _PLAN_MAX_PX)
+    upright = min(avail_w_in / w, avail_h_in / h)
+    turned = min(avail_w_in / h, avail_h_in / w)
+    if turned > upright * 1.02:
+        with Image.open(stream) as im:
+            im = im.rotate(90, expand=True)
+            stream = io.BytesIO()
+            im.save(stream, "PNG")
+        stream.seek(0)
+        w, h, scale = h, w, turned
+    else:
+        scale = upright
+    return stream, {"width": Inches(w * scale)}
+
+
+def _page_area(section) -> tuple[float, float]:
+    """(width, height) in inches inside a section's margins."""
+    return ((section.page_width - section.left_margin - section.right_margin) / 914400,
+            (section.page_height - section.top_margin - section.bottom_margin) / 914400)
+
+
+# room on a plan page for its "Plan Sheets" / sheet name lines above the image
+_PLAN_TITLE_IN = 0.85
+
+
 def _safe_name(text: str) -> str:
     """A sheet id as a file name: "PL-01:2" -> "PL-01_2" (':' is not allowed
     on Windows)."""
@@ -631,9 +664,10 @@ class _Writer:
         sheets = [s for s in project.plans if s.id in pinned]
         if not sheets:
             return
-        self.heading("Plan Sheets")
+        self.heading("Plan Sheets").paragraph_format.page_break_before = True
+        avail_w, avail_h = _page_area(self.doc.sections[-1])
         legend_shown = False
-        for sheet in sheets:
+        for i, sheet in enumerate(sheets):
             img, has_legend = _plan_image(project, sheet, entries, tmp)
             if img is None:
                 continue
@@ -645,13 +679,12 @@ class _Writer:
             cap = self.body(sheet.name)
             cap.runs[0].bold = True
             cap.paragraph_format.keep_with_next = True
-            stream, w, h = _image_stream(img, _PLAN_MAX_PX)
+            cap.paragraph_format.page_break_before = i > 0     # one sheet per page
+            # the legend line only sits on the first page
+            room = _PLAN_TITLE_IN + (0.35 if i == 0 else 0)
+            stream, size = _plan_on_page(img, avail_w - 0.05, avail_h - room)
             p = self.doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            max_h = 7.5
-            size = {"width": Inches(self.text_w_in)}
-            if h / w * self.text_w_in > max_h:
-                size = {"height": Inches(max_h)}
             p.add_run().add_picture(stream, **size)
 
     def legend(self):
@@ -756,7 +789,8 @@ class _Writer:
         """Earlier visits' action items: ITEM line, Action, then each update."""
         if not items:
             return
-        self.heading("Previous Action Items")
+        # always on a page of its own, after this visit's items
+        self.heading("Previous Action Items").paragraph_format.page_break_before = True
         for it in items:
             p = self._hanging(self.body(""))
             p.add_run(f"ITEM {it.get('number', '')}").bold = True
@@ -929,7 +963,7 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         plans [{name, image}]
     """
     from docx.shared import Inches
-    from docxtpl import InlineImage
+    from docxtpl import InlineImage, Listing
 
     opts = project.report_options or {}
 
@@ -978,12 +1012,14 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
 
     plans = []
     if opts.get("include_marked_plans", True):
+        # only sheets with a pin from this report; each fills a page of its own
+        avail_w, avail_h = _page_area(tpl.get_docx().sections[-1])
         pinned = {e.obs.pin.sheet_id for e in entries if e.obs.pin is not None}
         for sheet in (s for s in project.plans if s.id in pinned):
             img, _ = _plan_image(project, sheet, entries, tmp)
             if img is not None:
-                stream, _, _ = _image_stream(img, _PLAN_MAX_PX)
-                plans.append({"name": sheet.name, "image": InlineImage(tpl, stream, width=Inches(6.5))})
+                stream, size = _plan_on_page(img, avail_w - 0.05, avail_h - _PLAN_TITLE_IN)
+                plans.append({"name": sheet.name, "image": InlineImage(tpl, stream, **size)})
 
     # Nothing is written into the record that the engineer did not enter:
     # the stage and the conformance statement stay blank unless given.
@@ -996,7 +1032,8 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         "project_address": project.site_address,
         "observer": project.engineer,
         "site_visit_no": str(opts.get("site_visit_no", "") or ""),
-        "others_present": str(opts.get("others_present", "") or ""),
+        # line breaks kept as typed (a Listing turns each newline into a break)
+        "others_present": Listing(str(opts.get("others_present", "") or "").strip()),
         "stage_of_construction": _paragraphs(opts.get("stage_of_construction") or ""),
         "structural_elements_observed": _paragraphs(opts.get("structural_elements_observed") or ""),
         "summary": summary,
