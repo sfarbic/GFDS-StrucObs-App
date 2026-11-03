@@ -73,6 +73,7 @@ _PAIR_H = 2.58
 _PHOTO_MAX_PX = 1600
 _PLAN_MAX_PX = 2400
 _INDENT_IN = 1.0          # hanging indent for ITEM / Location / Action lines
+_LINE_PT = 12             # a blank line: around photos, before Action
 _SHORT_DESC = 80          # characters of description in the photo log
 
 _TAG_RE = re.compile(rb"\{\{|\{%")
@@ -685,6 +686,7 @@ class _Writer:
         intro, steps = _action_parts(o.action_item)
         if intro or steps:
             p = self._hanging(self.body(""))
+            p.paragraph_format.space_before = Pt(_LINE_PT)  # a line below the photos
             p.add_run("Action:\t" + intro)
             for i, step in enumerate(steps, 1):
                 sp = self.body(f"{i})\t{step}")
@@ -708,6 +710,7 @@ class _Writer:
             photo = e.photos[0]
             stream, w, h = _image_stream(photo, _PHOTO_MAX_PX)
             p = self._indented(self.doc.add_paragraph())
+            p.paragraph_format.space_before = Pt(_LINE_PT)   # a line above each photo
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.add_run().add_picture(stream, **_photo_size(w, h, 1, avail))
             cap = _explicit_caption(e.obs, photo)
@@ -722,7 +725,9 @@ class _Writer:
                 p.paragraph_format.space_after = Pt(6)
             return
 
-        # two or more: two per row in a borderless table, caption under each
+        # two or more: two per row in a borderless table, caption under each,
+        # a line above the table and between its rows
+        self.doc.add_paragraph().paragraph_format.space_after = Pt(0)
         col_w = (self.text_w_in - _INDENT_IN) / 2
         rows = (len(e.photos) + 1) // 2
         t = self.doc.add_table(rows=rows, cols=2)
@@ -735,6 +740,8 @@ class _Writer:
             p = cell.paragraphs[0]
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_after = Pt(0)
+            if i >= 2:
+                p.paragraph_format.space_before = Pt(_LINE_PT)
             p.add_run().add_picture(stream, **_photo_size(w, h, 2, col_w - 0.15))
             cap = _explicit_caption(e.obs, photo)
             if cap:

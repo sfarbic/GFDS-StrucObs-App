@@ -1,5 +1,11 @@
 {% extends "_base.html" %}
 {% block title %}New project — GFDS StrucObs{% endblock %}
+{% block style %}
+.plan{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+.plan .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan .meta{color:var(--mut);font-size:12.5px}
+.plan button{background:transparent;color:var(--bad);border:0;font-size:18px;padding:0 6px;line-height:1}
+{% endblock %}
 {% block content %}
 <div class="top">
   <a class="back" href="/" title="Home">&lsaquo;</a>
@@ -14,12 +20,18 @@
   <div class="warnTxt" id="dupWarn" hidden></div>
   <label class="f" for="address">Project address <small>(optional)</small></label>
   <input type="text" id="address" maxlength="300" autocomplete="off" placeholder="Street, city">
+
+  <label class="f" style="margin-top:18px">Plans <small>(optional — you can add more later under Edit)</small></label>
+  <div id="planList"></div>
+  <button class="ghost wide" id="planAdd" style="margin-top:6px">+ Add plan (PDF or image)</button>
+  <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
+
   <button class="wide" id="create" style="margin-top:16px">Create project</button>
 </div></div>
 {% endblock %}
 {% block script %}
 <script>
-let jobs = [];
+let jobs = [], plans = [];
 api('/api/jobs').then(r => { jobs = r.jobs; }).catch(()=>{});
 $('number').oninput = () => {
   const n = $('number').value.trim().toLowerCase();
@@ -27,17 +39,42 @@ $('number').oninput = () => {
   $('dupWarn').hidden = !dup;
   if (dup) $('dupWarn').textContent = `Project ${dup.number} already exists: “${dup.name}”.`;
 };
+
+/* plans are held here and uploaded once the project exists */
+const mb = f => (f.size / 1048576).toFixed(1) + " MB";
+function renderPlans(){
+  $('planList').innerHTML = plans.map((f, i) => `
+    <div class="plan"><span class="nm">${esc(f.name)}</span><span class="meta">${mb(f)}</span>
+      <button data-i="${i}" title="Remove">&times;</button></div>`).join("");
+  $('planList').querySelectorAll('button').forEach(b => b.onclick = () => {
+    plans.splice(+b.dataset.i, 1); renderPlans(); });
+}
+$('planAdd').onclick = () => $('planInput').click();
+$('planInput').onchange = ev => {
+  plans.push(...[...ev.target.files]); ev.target.value = ""; renderPlans();
+};
+
 $('create').onclick = async () => {
   const body = {name: $('name').value.trim(), number: $('number').value.trim(),
                 address: $('address').value.trim()};
   if (!body.name) return say("Enter a project name.","bad");
   if (!body.number) return say("Enter a project number.","bad");
   if (!$('dupWarn').hidden && !confirm(`${$('dupWarn').textContent}\n\nCreate another with the same number?`)) return;
-  $('create').disabled = true;
-  try{
-    const j = await api('/api/jobs', {method:"POST", json: body});
-    location.href = `/projects/${j.job_id}`;
-  }catch(err){ say(err.message,"bad"); $('create').disabled = false; }
+  $('create').disabled = true; $('planAdd').disabled = true;
+  let j;
+  try{ j = await api('/api/jobs', {method:"POST", json: body}); }
+  catch(err){ say(err.message,"bad"); $('create').disabled = false; $('planAdd').disabled = false; return; }
+  // the project exists now; a plan that fails can be added again under Edit
+  const failed = [];
+  for (const [i, f] of plans.entries()){
+    $('create').textContent = `Uploading plan ${i + 1} of ${plans.length}…`;
+    const fd = new FormData(); fd.append("plan", f);
+    try{ await api(`/api/jobs/${j.job_id}/plans`, {method:"POST", body: fd}); }
+    catch(err){ failed.push(`${f.name}: ${err.message}`); }
+  }
+  if (failed.length)
+    alert(`The project was created, but ${failed.length === 1 ? "a plan" : "some plans"} did not upload:\n\n${failed.join("\n")}\n\nAdd ${failed.length === 1 ? "it" : "them"} again under Edit on the project page.`);
+  location.href = `/projects/${j.job_id}`;
 };
 </script>
 {% endblock %}
