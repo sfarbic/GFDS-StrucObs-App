@@ -92,9 +92,21 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   padding:12px 14px;border-bottom:1px solid var(--line)}
 .dlgHead b{font-size:14.5px}
 .dlgBody{padding:14px;max-height:72vh;overflow:auto}
-#planHolder{position:relative;touch-action:manipulation}
-#planCanvas{width:100%;display:block;border:1px solid var(--line);border-radius:9px}
-.pin{position:absolute;width:26px;height:26px;margin:-26px 0 0 -13px;pointer-events:none}
+/* location picker: the sheet sits on a stage that pans and zooms inside the
+   holder; pins counter-scale (--inv) so they stay one size while zooming */
+#planDlg{width:min(760px,96vw)}
+#planHolder{position:relative;overflow:hidden;touch-action:none;height:min(62vh,600px);
+  background:var(--card2);border:1px solid var(--line);border-radius:9px;cursor:crosshair}
+#planStage{position:absolute;left:0;top:0;transform-origin:0 0;--inv:1}
+#planCanvas{display:block;width:100%;height:100%;background:#fff}
+.pin{position:absolute;width:26px;height:26px;margin:-26px 0 0 -13px;pointer-events:none;
+  transform:scale(var(--inv));transform-origin:50% 100%}
+.opin{position:absolute;pointer-events:none;transform:translate(-50%,-50%) scale(var(--inv));
+  min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:rgba(102,112,133,.55);
+  color:#fff;font-size:10.5px;font-weight:700;display:grid;place-items:center;line-height:1}
+.zoomBtns{position:absolute;right:8px;bottom:8px;display:flex;gap:6px}
+.zoomBtns button{width:38px;height:38px;padding:0;border-radius:9px;font-size:18px;
+  background:rgba(255,255,255,.92);color:#14181d;border:1px solid var(--line)}
 
 /* full-size photo: Keep · Retake · Delete */
 #viewDlg{width:min(720px,96vw)}
@@ -179,18 +191,27 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 </dialog>
 
 <dialog id="planDlg">
-  <div class="dlgHead"><b>Tap the location</b>
+  <div class="dlgHead"><b id="planTitle">Tap the location</b>
     <div style="display:flex;gap:7px">
+      <button class="ghost sm" id="planSkip">Skip</button>
       <button class="ghost sm" id="planClear">Clear</button>
       <button class="sm" id="planDone">Done</button></div></div>
   <div class="dlgBody">
     <select id="planSelect" style="margin-bottom:10px"></select>
     <div id="planHolder">
-      <canvas id="planCanvas"></canvas>
-      <div class="pin" id="planPin" hidden>
-        <svg viewBox="0 0 24 24" width="26" height="26">
-          <path d="M12 0C7 0 3 4 3 9c0 6.5 9 15 9 15s9-8.5 9-15c0-5-4-9-9-9z" fill="#e5484d"/>
-          <circle cx="12" cy="9" r="3.4" fill="#fff"/></svg>
+      <div id="planStage">
+        <canvas id="planCanvas"></canvas>
+        <div id="planPins"></div>
+        <div class="pin" id="planPin" hidden>
+          <svg viewBox="0 0 24 24" width="26" height="26">
+            <path d="M12 0C7 0 3 4 3 9c0 6.5 9 15 9 15s9-8.5 9-15c0-5-4-9-9-9z" fill="#e5484d"/>
+            <circle cx="12" cy="9" r="3.4" fill="#fff"/></svg>
+        </div>
+      </div>
+      <div class="zoomBtns">
+        <button id="zoomOut" aria-label="Zoom out">&minus;</button>
+        <button id="zoomIn" aria-label="Zoom in">+</button>
+        <button id="zoomFit" aria-label="Show the whole sheet" style="font-size:14px">&#9635;</button>
       </div>
     </div>
     <div class="msg" id="planMsg"></div>
@@ -353,6 +374,8 @@ $('toolCam').onclick = () => takePhoto();
 $('camInput').onchange = async ev => {
   const f = ev.target.files[0]; ev.target.value = "";
   const c = cur(); if (!f || !c) return;
+  // the first photo of an item with no pin goes straight on to its location
+  const askWhere = !retakeId && !(c.e.images || []).length && !c.e.location && plans.length > 0;
   const fd = new FormData(); fd.append("photo", f);
   say(retakeId ? "Replacing photo…" : "Uploading photo…","warn");
   try{
@@ -365,6 +388,7 @@ $('camInput').onchange = async ev => {
     say(retakeId ? "Photo replaced." : `Photo ${n} of ITEM ${label(c.e)} saved.`,"ok");
     render();
     if (retakeId && $('viewDlg').open) showView();
+    if (askWhere && cur()?.e === c.e) openPlan({after: true});
   }catch(err){ say(err.message,"bad"); }
   finally{ retakeId = null; }
 };
@@ -515,8 +539,13 @@ $('micDesc').onclick = () => dictate("desc");
 $('micAct').onclick = () => dictate("action");
 
 /* ---------------- location on plan ---------------- */
-$('toolLoc').onclick = openPlan;
-async function openPlan(){
+/* The last sheet a pin went on, per visit, so the next item opens there. */
+const sheetKey = () => `strucobs:lastSheet:${visit ? visit.project_id : ""}`;
+const lastSheet = () => { try{ return localStorage.getItem(sheetKey()) || ""; }catch(e){ return ""; } };
+const rememberSheet = v => { try{ localStorage.setItem(sheetKey(), v); }catch(e){ /* private mode */ } };
+
+$('toolLoc').onclick = () => openPlan();
+async function openPlan({after = false} = {}){
   if (!plans.length)
     return say("No plans yet — add them on the project page: Edit → Plans.","bad");
   /* one choice per sheet: "S1.0 — Martis Camp Structure" by its sheet number,
@@ -531,8 +560,11 @@ async function openPlan(){
   })).join("");
   const e = cur().e;
   pendingLoc = e.location ? {...e.location} : null;
-  if (pendingLoc) $('planSelect').value = `${pendingLoc.plan_id}|${pendingLoc.page || 1}`;
+  // this item's own sheet, else the last sheet used in this visit, else the first
+  $('planSelect').value = pendingLoc ? `${pendingLoc.plan_id}|${pendingLoc.page || 1}` : lastSheet();
   if (!$('planSelect').value) $('planSelect').selectedIndex = 0;
+  $('planTitle').textContent = after ? `Where is ITEM ${label(e)}?` : "Tap the location";
+  $('planSkip').hidden = !after;
   $('planPin').hidden = true;
   $('planDlg').showModal();
   await drawPlan();
@@ -541,6 +573,120 @@ $('planSelect').onchange = () => { pendingLoc=null; $('planPin').hidden=true; dr
 
 const picked = () => { const [plan_id, page] = $('planSelect').value.split("|");
   return {plan_id, page: +page || 1}; };
+
+/* ---- pan and zoom: the stage is the sheet at "fit" size, moved by view ---- */
+let view = {s: 1, x: 0, y: 0}, fitW = 0, fitH = 0;
+const MAX_ZOOM = 8;
+
+function applyView(){
+  const hold = $('planHolder'), W = hold.clientWidth, H = hold.clientHeight;
+  view.s = Math.min(MAX_ZOOM, Math.max(1, view.s));
+  const w = fitW * view.s, h = fitH * view.s;
+  // keep the sheet on screen: centred while smaller than the holder, else edge to edge
+  view.x = w <= W ? (W - w) / 2 : Math.min(0, Math.max(W - w, view.x));
+  view.y = h <= H ? (H - h) / 2 : Math.min(0, Math.max(H - h, view.y));
+  const st = $('planStage');
+  st.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`;
+  st.style.setProperty('--inv', 1 / view.s);
+}
+function fitSheet(){
+  const hold = $('planHolder'), cv = $('planCanvas');
+  const W = hold.clientWidth, H = hold.clientHeight;
+  const k = Math.min(W / cv.width, H / cv.height);
+  fitW = cv.width * k; fitH = cv.height * k;
+  const st = $('planStage');
+  st.style.width = fitW + "px"; st.style.height = fitH + "px";
+  view = {s: 1, x: 0, y: 0};
+  applyView();
+}
+/* zoom by f around a point in the holder (default: its centre) */
+function zoomAt(f, px, py){
+  const hold = $('planHolder');
+  if (px === undefined){ px = hold.clientWidth / 2; py = hold.clientHeight / 2; }
+  const s = Math.min(MAX_ZOOM, Math.max(1, view.s * f)), k = s / view.s;
+  view.x = px - (px - view.x) * k; view.y = py - (py - view.y) * k; view.s = s;
+  applyView();
+}
+/* show a spot (0-1) at this zoom, centred */
+function focusOn(x, y, s){
+  const hold = $('planHolder');
+  view.s = s;
+  view.x = hold.clientWidth / 2 - x * fitW * s;
+  view.y = hold.clientHeight / 2 - y * fitH * s;
+  applyView();
+}
+$('zoomIn').onclick = () => zoomAt(1.6);
+$('zoomOut').onclick = () => zoomAt(1 / 1.6);
+$('zoomFit').onclick = () => { view = {s: 1, x: 0, y: 0}; applyView(); };
+
+/* one finger drags, two pinch; a touch that hardly moves is a tap that places the pin */
+const touches = new Map();
+let gesture = null;
+const holderPoint = ev => { const r = $('planHolder').getBoundingClientRect();
+  return {x: ev.clientX - r.left, y: ev.clientY - r.top}; };
+$('planHolder').addEventListener('pointerdown', ev => {
+  if (ev.target.closest('.zoomBtns')) return;
+  // keep getting moves when the finger slides off the sheet (best effort)
+  try{ $('planHolder').setPointerCapture(ev.pointerId); }catch(e){ /* not capturable */ }
+  touches.set(ev.pointerId, holderPoint(ev));
+  gesture = touches.size === 1
+    ? {tap: true, start: holderPoint(ev), view: {...view}}
+    : {tap: false, pinch: pinchOf(), view: {...view}};
+});
+function pinchOf(){
+  const [a, b] = [...touches.values()];
+  return {d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2};
+}
+$('planHolder').addEventListener('pointermove', ev => {
+  if (!touches.has(ev.pointerId) || !gesture) return;
+  touches.set(ev.pointerId, holderPoint(ev));
+  if (touches.size >= 2 && gesture.pinch){
+    const now = pinchOf(), was = gesture.pinch, v = gesture.view;
+    const s = Math.min(MAX_ZOOM, Math.max(1, v.s * now.d / was.d)), k = s / v.s;
+    view = {s, x: now.mx - (was.mx - v.x) * k, y: now.my - (was.my - v.y) * k};
+    applyView();
+  } else if (touches.size === 1){
+    const p = holderPoint(ev), dx = p.x - gesture.start.x, dy = p.y - gesture.start.y;
+    if (Math.hypot(dx, dy) > 6) gesture.tap = false;
+    if (!gesture.tap){ view.x = gesture.view.x + dx; view.y = gesture.view.y + dy; applyView(); }
+  }
+});
+function endTouch(ev){
+  if (!touches.has(ev.pointerId)) return;
+  const was = gesture;
+  touches.delete(ev.pointerId);
+  if (was && was.tap && touches.size === 0 && ev.type === "pointerup") placePin(ev);
+  // the finger left on the glass carries on as a drag from here
+  gesture = touches.size === 1
+    ? {tap: false, start: [...touches.values()][0], view: {...view}} : null;
+}
+$('planHolder').addEventListener('pointerup', endTouch);
+$('planHolder').addEventListener('pointercancel', endTouch);
+$('planHolder').addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const p = holderPoint(ev);
+  zoomAt(ev.deltaY < 0 ? 1.25 : 1 / 1.25, p.x, p.y);
+}, {passive: false});
+
+function placePin(ev){
+  const r = $('planCanvas').getBoundingClientRect();   // includes the pan and zoom
+  /* normalised 0-1: survives any screen size, zoom or re-render */
+  const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  pendingLoc = {...picked(), x, y};
+  showPin(x, y);
+  $('planMsg').textContent = "Pin placed — tap Done, or tap again to move it.";
+}
+
+/* this visit's other pins on the sheet, faint, with their ITEM numbers */
+function otherPins(){
+  const {plan_id, page} = picked(), me = cur()?.e;
+  $('planPins').innerHTML = entries()
+    .filter(({e}) => e !== me && e.location && e.location.plan_id === plan_id
+                     && (e.location.page || 1) === page)
+    .map(({e}) => `<div class="opin" style="left:${e.location.x * 100}%;top:${e.location.y * 100}%">${label(e)}</div>`)
+    .join("");
+}
 
 async function drawPlan(){
   const {plan_id, page: sheet} = picked();
@@ -552,33 +698,33 @@ async function drawPlan(){
       const buf = await (await fetch(p.url)).arrayBuffer();
       const pdf = await pdfjsLib.getDocument({data:buf}).promise;
       const page = await pdf.getPage(Math.min(sheet, pdf.numPages));
-      const vp = page.getViewport({scale:2});
+      // sharp enough to zoom into: about 3000 px on the long side
+      const base = page.getViewport({scale: 1});
+      const vp = page.getViewport({scale: Math.min(4, 3000 / Math.max(base.width, base.height))});
       cv.width = vp.width; cv.height = vp.height;
       await page.render({canvasContext:ctx, viewport:vp}).promise;
-      $('planMsg').textContent = "Tap to place the marker.";
     } else {
       const img = new Image();
       await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=p.url;});
       cv.width=img.width; cv.height=img.height; ctx.drawImage(img,0,0);
-      $('planMsg').textContent = "Tap to place the marker.";
     }
-    if (pendingLoc) showPin(pendingLoc.x, pendingLoc.y);
+    fitSheet();
+    otherPins();
+    if (pendingLoc){ showPin(pendingLoc.x, pendingLoc.y); focusOn(pendingLoc.x, pendingLoc.y, 2.5); }
+    $('planMsg').textContent = "Tap to place the pin. Pinch or use + to zoom; drag to move.";
   }catch(err){ $('planMsg').textContent = "Could not render plan: "+err.message; }
 }
 function showPin(x,y){ const p=$('planPin');
   p.style.left=(x*100)+"%"; p.style.top=(y*100)+"%"; p.hidden=false; }
 
-$('planCanvas').onclick = ev => {
-  const r = $('planCanvas').getBoundingClientRect();
-  /* normalised 0-1: survives any screen size, zoom or re-render */
-  const x = (ev.clientX-r.left)/r.width, y = (ev.clientY-r.top)/r.height;
-  pendingLoc = {...picked(), x, y};
-  showPin(x,y);
-  $('planMsg').textContent = `x ${x.toFixed(3)} · y ${y.toFixed(3)}`;
-};
 $('planClear').onclick = () => { pendingLoc=null; $('planPin').hidden=true;
-  $('planMsg').textContent="Marker cleared."; };
-$('planDone').onclick = async () => { $('planDlg').close(); await patch({location:pendingLoc}); };
+  $('planMsg').textContent="Pin cleared — tap Done to save without a location."; };
+$('planSkip').onclick = () => { $('planDlg').close(); say("No location yet — tap 📍 to add one.",""); };
+$('planDone').onclick = async () => {
+  $('planDlg').close();
+  if (pendingLoc) rememberSheet(`${pendingLoc.plan_id}|${pendingLoc.page || 1}`);
+  await patch({location:pendingLoc});
+};
 
 /* back to the project page; the report is generated from there */
 $('btnFinish').onclick = async () => {
