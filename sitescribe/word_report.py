@@ -262,9 +262,16 @@ class _Entry:
     sheet_name: str = ""
 
 
+def is_empty(o: Observation) -> bool:
+    """Nothing to report: no description, no photo and no action. Such an
+    item is left out of the report, its pin included."""
+    return not (o.description.strip() or _photo_list(o) or o.action_item.strip())
+
+
 def _entries(project: Project) -> list[_Entry]:
-    """Included observations in report order, with their ITEM labels."""
-    included = [o for o in project.observations if o.include]
+    """Included observations in report order, with their ITEM labels; an
+    empty one is left out."""
+    included = [o for o in project.observations if o.include and not is_empty(o)]
     # number 0 means "not numbered yet": each such entry becomes its own item
     next_free = max([o.number for o in included if o.number > 0], default=0)
     numbered: list[tuple[int, int, Observation]] = []

@@ -322,3 +322,16 @@ def test_a_plan_keeps_only_the_chosen_sheets_named_by_their_original_number(clie
     bad = client.post(f"/api/jobs/{jid}/plans", content_type="multipart/form-data",
                       data={"plan": (io.BytesIO(doc.tobytes()), "Set.pdf"), "pages": "0,9"})
     assert bad.status_code == 400
+
+
+def test_an_item_with_nothing_in_it_is_left_out_of_the_report(client):
+    jid = _job(client)["job_id"]
+    v1 = _visit(client, jid, 1)
+    _entry(client, description="Cracked beam")
+    client.post("/api/item")                                  # 1.2: nothing entered
+    _entry(client, action="Install the HDU.")                 # 1.3: an action only
+    text = _report(client)
+    assert "ITEM 1.1" in text and "ITEM 1.3" in text
+    assert "ITEM 1.2" not in text
+    visit = client.get(f"/api/jobs/{jid}").get_json()["visits"][0]
+    assert visit["project_id"] == v1["project_id"] and visit["included"] == 2

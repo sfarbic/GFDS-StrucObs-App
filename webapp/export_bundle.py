@@ -89,6 +89,11 @@ def _entries(data: dict, item_dir):
             names = ([im.get("filename") for im in ph["images"]] if ph.get("images") is not None
                      else [ph.get("filename")])
             paths = [folder / n for n in names if n and (folder / n).exists()]
+            # an item with no description, photo or action is not in the report,
+            # so its pin stays off the plans here too
+            if not (paths or (ph.get("description") or "").strip()
+                    or (ph.get("action") or "").strip()):
+                continue
             for path in paths or [None]:
                 obs = _observation(item, ph, path)
                 if data.get("visit_no"):        # pins read like the report: 2.3

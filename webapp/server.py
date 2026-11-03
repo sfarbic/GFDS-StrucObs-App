@@ -530,7 +530,10 @@ def _counts(pid):
             entries = it.get("photos") or []
             photos += len(entries)
             for e in entries:
-                if e.get("include", it.get("include", True)):
+                # an item with no description, photo or action is left out of the report
+                has = (e.get("images") or e.get("filename") or (e.get("description") or "").strip()
+                       or (e.get("action") or "").strip() or (it.get("description") or "").strip())
+                if e.get("include", it.get("include", True)) and has:
                     included += 1
     except Exception:
         # one corrupt project must never break the whole listing

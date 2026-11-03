@@ -147,7 +147,7 @@ def test_every_floor_plan_gets_its_own_image_even_with_the_same_name(client):
         plan = client.post("/api/plan", data={"plan": (_plan_pdf(), name)},
                            content_type="multipart/form-data").get_json()
         item_id, photo_id = _item(client)
-        _details(client, item_id, photo_id, importance=importance,
+        _details(client, item_id, photo_id, importance=importance, description=f"On {name}",
                  location={"plan_id": plan["plan_id"], "page": 1, "x": x, "y": 0.5})
 
     _, zf = _export(client)
