@@ -790,9 +790,42 @@ def _plan_into_visit(jid, plan, pid):
     return dict(plan, url=f"/uploads/{pid}/plans/{plan['file']}")
 
 
+PLAN_KEYS = ("plan_id", "name", "url", "pages", "page_labels")
+
+
 def _plan_json(job, idx):
-    return [{k: pl.get(k) for k in ("plan_id", "name", "url", "pages")}
-            for pl in job_plans(job, idx)]
+    return [{k: pl.get(k) for k in PLAN_KEYS} for pl in job_plans(job, idx)]
+
+
+def sheet_label(plan, page):
+    """The sheet's number in the PDF as uploaded: a set cut down to the
+    chosen sheets keeps them as page_labels."""
+    labels = plan.get("page_labels") or []
+    return labels[page - 1] if 0 < page <= len(labels) else page
+
+
+def _parse_pages(raw, total):
+    """"1,3,5" -> [1, 3, 5]: the 1-based sheets to keep, in order, each once."""
+    try:
+        pages = sorted({int(t) for t in str(raw or "").split(",") if t.strip()})
+    except ValueError:
+        raise ApiError("pages must be sheet numbers like 1,3,5")
+    if not pages or pages[0] < 1 or pages[-1] > total:
+        raise ApiError(f"pick sheets between 1 and {total}")
+    return pages
+
+
+def _keep_pages(path, pages):
+    """Rewrite the PDF at path with only these 1-based pages."""
+    import pypdf
+    reader = pypdf.PdfReader(path)
+    writer = pypdf.PdfWriter()
+    for n in pages:
+        writer.add_page(reader.pages[n - 1])
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as fh:
+        writer.write(fh)
+    os.replace(tmp, path)
 
 
 @app.route("/api/jobs/<jid>/plans")
@@ -806,10 +839,11 @@ def api_job_plans(jid):
         return jsonify(plans=out)
 
 
-def add_job_plan(jid, f):
+def add_job_plan(jid, f, pages=None):
     """Save an uploaded plan set to the project and copy it into every site
-    visit. Returns (jobs, job, idx, the project's plan record). Call under
-    the lock."""
+    visit. pages ("1,3,5") keeps only those sheets of a PDF, each remembered
+    by its original number. Returns (jobs, job, idx, the project's plan
+    record). Call under the lock."""
     name = os.path.basename(f.filename)
     jobs = load_jobs()
     job = need_job(jobs, jid)
@@ -829,6 +863,16 @@ def add_job_plan(jid, f):
     plan = {"plan_id": plan_id, "name": name, "file": filename,
             "url": f"/uploads/{jid}/plans/{filename}",
             "pages": pdf_pages(path) if name.lower().endswith(".pdf") else 1}
+    if pages and name.lower().endswith(".pdf"):
+        try:
+            keep = _parse_pages(pages, plan["pages"])
+        except ApiError:
+            os.remove(path)
+            raise
+        if keep != list(range(1, plan["pages"] + 1)):
+            _keep_pages(path, keep)
+            plan["pages"] = len(keep)
+            plan["page_labels"] = keep
     plans.append(plan)
     save_jobs(jobs)
     for v in visits:
@@ -850,9 +894,8 @@ def api_job_plan_upload(jid):
     if not f.filename.lower().endswith((".pdf", ".png", ".jpg", ".jpeg")):
         raise ApiError("plans must be a PDF or an image")
     with _lock:
-        _, job, idx, plan = add_job_plan(jid, f)
-        return jsonify(plan={k: plan[k] for k in ("plan_id", "name", "url", "pages")},
-                       plans=_plan_json(job, idx))
+        _, job, idx, plan = add_job_plan(jid, f, request.form.get("pages"))
+        return jsonify(plan={k: plan.get(k) for k in PLAN_KEYS}, plans=_plan_json(job, idx))
 
 
 @app.route("/api/jobs/<jid>/plans/<plan_id>", methods=["DELETE"])
@@ -946,8 +989,7 @@ def _job_page(jid):
         "job": job_dict(job, idx),
         "visits": [visit_dict(p) for p in reversed(visits)],
         "action_items": action_items(idx, jid),
-        "plans": [{k: pl.get(k) for k in ("plan_id", "name", "url", "pages")}
-                  for pl in (job.get("plans") or [])],
+        "plans": [{k: pl.get(k) for k in PLAN_KEYS} for pl in (job.get("plans") or [])],
         "next_visit_no": max((_visit_no(p) for p in visits), default=0) + 1,
         "observed_by": (last or {}).get("observed_by") or "",
     }
@@ -1286,6 +1328,8 @@ def _plan_place(plans, loc):
     plan = plans[loc["plan_id"]]
     label = re.sub(r"\.(pdf|png|jpe?g|heic)$", "", str(plan.get("name") or plan.get("file") or ""),
                    flags=re.IGNORECASE)
+    if plan.get("page_labels"):
+        return f"{label}, sheet {sheet_label(plan, loc.get('page') or 1)}"
     return label if (plan.get("pages") or 1) == 1 else f"{label}, page {loc.get('page') or 1}"
 
 

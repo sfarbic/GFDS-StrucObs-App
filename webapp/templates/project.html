@@ -40,7 +40,8 @@
   <label class="f" style="margin-top:20px">Plans <small>(every site visit uses these for pin locations)</small></label>
   <div id="planList"></div>
   <button class="ghost wide" id="planAdd" style="margin-top:8px">+ Upload plan (PDF or image)</button>
-  <input type="file" id="planInput" hidden accept="application/pdf,image/*">
+  <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
+  <div class="hint">A PDF with several sheets lets you pick which sheets to keep.</div>
 </div>
 
 <div class="sec row">
@@ -62,6 +63,7 @@
   <button class="danger sm" id="btnDelete">Delete project</button>
 </div>
 {% include "_actions.html" %}
+{% include "_plan_sheets.html" %}
 {% endblock %}
 {% block script %}
 <script>
@@ -159,7 +161,7 @@ $('btnEdit').onclick = () => {
 function renderPlans(plans){
   $('planList').innerHTML = plans.length ? plans.map(p => `
     <div class="plan"><a class="nm" href="${p.url}" target="_blank">${esc(p.name)}</a>
-      <span class="meta">${p.pages} page${p.pages===1?"":"s"}</span>
+      <span class="meta">${p.pages} sheet${p.pages===1?"":"s"}</span>
       <button data-id="${p.plan_id}" title="Remove plan">&times;</button></div>`).join("")
     : `<div class="hint">No plans yet.</div>`;
   $('planList').querySelectorAll('button').forEach(b => b.onclick = async () => {
@@ -173,13 +175,20 @@ Every site visit loses it, and pins placed on it are removed.`)) return;
 }
 $('planAdd').onclick = () => $('planInput').click();
 $('planInput').onchange = async ev => {
-  const f = ev.target.files[0]; if (!f) return; ev.target.value = "";
-  const fd = new FormData(); fd.append("plan", f);
-  $('planAdd').disabled = true; $('planAdd').textContent = "Uploading…";
-  try{ const r = await api(`/api/jobs/${JID}/plans`, {method:"POST", body:fd});
-       renderPlans(r.plans); say(`Plan “${r.plan.name}” added to every site visit.`,"ok"); }
-  catch(err){ say(err.message,"bad"); }
-  finally{ $('planAdd').disabled = false; $('planAdd').textContent = "+ Upload plan (PDF or image)"; }
+  const files = [...ev.target.files]; ev.target.value = "";
+  for (const f of files){
+    let pages;
+    try{ pages = await PlanSheets.choose(f); }           // null: the user cancelled
+    catch(err){ say(`${f.name}: ${err.message}`,"bad"); continue; }
+    if (pages === null) continue;
+    const fd = new FormData(); fd.append("plan", f);
+    if (pages) fd.append("pages", pages);
+    $('planAdd').disabled = true; $('planAdd').textContent = `Uploading ${f.name}…`;
+    try{ const r = await api(`/api/jobs/${JID}/plans`, {method:"POST", body:fd});
+         renderPlans(r.plans); say(`Plan “${r.plan.name}” added to every site visit.`,"ok"); }
+    catch(err){ say(err.message,"bad"); }
+    finally{ $('planAdd').disabled = false; $('planAdd').textContent = "+ Upload plan (PDF or image)"; }
+  }
 };
 $('eCancel').onclick = () => { $('editBox').hidden = true; $('info').hidden = false; };
 $('eSave').onclick = async () => {

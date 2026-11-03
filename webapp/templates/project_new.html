@@ -25,9 +25,11 @@
   <div id="planList"></div>
   <button class="ghost wide" id="planAdd" style="margin-top:6px">+ Add plan (PDF or image)</button>
   <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
+  <div class="hint">A PDF with several sheets lets you pick which sheets to keep.</div>
 
   <button class="wide" id="create" style="margin-top:16px">Create project</button>
 </div></div>
+{% include "_plan_sheets.html" %}
 {% endblock %}
 {% block script %}
 <script>
@@ -40,18 +42,27 @@ $('number').oninput = () => {
   if (dup) $('dupWarn').textContent = `Project ${dup.number} already exists: “${dup.name}”.`;
 };
 
-/* plans are held here and uploaded once the project exists */
+/* plans are held here, each with the sheets picked from it, and uploaded
+   once the project exists */
 const mb = f => (f.size / 1048576).toFixed(1) + " MB";
+const sheets = p => p.pages ? `${p.pages.split(",").length} sheet${p.pages.includes(",") ? "s" : ""}` : mb(p.file);
 function renderPlans(){
-  $('planList').innerHTML = plans.map((f, i) => `
-    <div class="plan"><span class="nm">${esc(f.name)}</span><span class="meta">${mb(f)}</span>
+  $('planList').innerHTML = plans.map((p, i) => `
+    <div class="plan"><span class="nm">${esc(p.file.name)}</span><span class="meta">${sheets(p)}</span>
       <button data-i="${i}" title="Remove">&times;</button></div>`).join("");
   $('planList').querySelectorAll('button').forEach(b => b.onclick = () => {
     plans.splice(+b.dataset.i, 1); renderPlans(); });
 }
 $('planAdd').onclick = () => $('planInput').click();
-$('planInput').onchange = ev => {
-  plans.push(...[...ev.target.files]); ev.target.value = ""; renderPlans();
+$('planInput').onchange = async ev => {
+  const files = [...ev.target.files]; ev.target.value = "";
+  for (const file of files){
+    try{
+      const pages = await PlanSheets.choose(file);      // null: the user cancelled this one
+      if (pages !== null) plans.push({file, pages});
+    }catch(err){ say(`${file.name}: ${err.message}`, "bad"); }
+    renderPlans();
+  }
 };
 
 $('create').onclick = async () => {
@@ -66,11 +77,12 @@ $('create').onclick = async () => {
   catch(err){ say(err.message,"bad"); $('create').disabled = false; $('planAdd').disabled = false; return; }
   // the project exists now; a plan that fails can be added again under Edit
   const failed = [];
-  for (const [i, f] of plans.entries()){
+  for (const [i, p] of plans.entries()){
     $('create').textContent = `Uploading plan ${i + 1} of ${plans.length}…`;
-    const fd = new FormData(); fd.append("plan", f);
+    const fd = new FormData(); fd.append("plan", p.file);
+    if (p.pages) fd.append("pages", p.pages);
     try{ await api(`/api/jobs/${j.job_id}/plans`, {method:"POST", body: fd}); }
-    catch(err){ failed.push(`${f.name}: ${err.message}`); }
+    catch(err){ failed.push(`${p.file.name}: ${err.message}`); }
   }
   if (failed.length)
     alert(`The project was created, but ${failed.length === 1 ? "a plan" : "some plans"} did not upload:\n\n${failed.join("\n")}\n\nAdd ${failed.length === 1 ? "it" : "them"} again under Edit on the project page.`);

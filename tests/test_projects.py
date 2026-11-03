@@ -299,3 +299,26 @@ def test_report_asks_about_items_with_several_photos_and_follows_the_answer(clie
     pictures = len(list(doc.element.body.iter(
         "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}inline")))
     assert pictures == 3          # two of ITEM 1.1's three photos, plus ITEM 1.2's one
+
+
+def test_a_plan_keeps_only_the_chosen_sheets_named_by_their_original_number(client):
+    jid = _job(client)["job_id"]
+    doc = pymupdf.open()
+    for _ in range(5):
+        doc.new_page(width=1200, height=800)
+    r = client.post(f"/api/jobs/{jid}/plans", content_type="multipart/form-data",
+                    data={"plan": (io.BytesIO(doc.tobytes()), "Set.pdf"), "pages": "2,5"})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    plan = r.get_json()["plan"]
+    assert plan["pages"] == 2 and plan["page_labels"] == [2, 5]
+    assert pymupdf.open(stream=client.get(plan["url"]).data, filetype="pdf").page_count == 2
+
+    # a pin on the second kept sheet reads as sheet 5 in the report
+    _visit(client, jid, 1)
+    _entry(client, description="On sheet five", action="Fix it.",
+           location={"plan_id": plan["plan_id"], "page": 2, "x": .5, "y": .5})
+    assert "Set, sheet 5" in _report(client)
+
+    bad = client.post(f"/api/jobs/{jid}/plans", content_type="multipart/form-data",
+                      data={"plan": (io.BytesIO(doc.tobytes()), "Set.pdf"), "pages": "0,9"})
+    assert bad.status_code == 400

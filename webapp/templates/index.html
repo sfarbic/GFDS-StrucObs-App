@@ -519,30 +519,39 @@ $('toolLoc').onclick = openPlan;
 async function openPlan(){
   if (!plans.length)
     return say("No plans yet — add them on the project page: Edit → Plans.","bad");
-  $('planSelect').innerHTML = plans.map(p =>
-    `<option value="${p.plan_id}">${esc(p.name)} (${p.pages} page${p.pages===1?"":"s"})</option>`).join("");
+  /* one choice per sheet: "S-set.pdf — sheet 7" (its number as uploaded) */
+  $('planSelect').innerHTML = plans.flatMap(p => Array.from({length: p.pages || 1}, (_, i) => {
+    const label = (p.page_labels || [])[i] || i + 1;
+    const nm = (p.pages || 1) > 1 || p.page_labels ? `${esc(p.name)} — sheet ${label}` : esc(p.name);
+    return `<option value="${p.plan_id}|${i + 1}">${nm}</option>`;
+  })).join("");
   const e = cur().e;
   pendingLoc = e.location ? {...e.location} : null;
-  if (pendingLoc) $('planSelect').value = pendingLoc.plan_id;
+  if (pendingLoc) $('planSelect').value = `${pendingLoc.plan_id}|${pendingLoc.page || 1}`;
+  if (!$('planSelect').value) $('planSelect').selectedIndex = 0;
   $('planPin').hidden = true;
   $('planDlg').showModal();
   await drawPlan();
 }
 $('planSelect').onchange = () => { pendingLoc=null; $('planPin').hidden=true; drawPlan(); };
 
+const picked = () => { const [plan_id, page] = $('planSelect').value.split("|");
+  return {plan_id, page: +page || 1}; };
+
 async function drawPlan(){
-  const p = plans.find(x => x.plan_id === $('planSelect').value);
+  const {plan_id, page: sheet} = picked();
+  const p = plans.find(x => x.plan_id === plan_id);
   const cv = $('planCanvas'), ctx = cv.getContext('2d');
   $('planMsg').textContent = "Loading plan…";
   try{
     if ((p.name||"").toLowerCase().endsWith(".pdf")){
       const buf = await (await fetch(p.url)).arrayBuffer();
       const pdf = await pdfjsLib.getDocument({data:buf}).promise;
-      const page = await pdf.getPage(pendingLoc?.page || 1);
+      const page = await pdf.getPage(Math.min(sheet, pdf.numPages));
       const vp = page.getViewport({scale:2});
       cv.width = vp.width; cv.height = vp.height;
       await page.render({canvasContext:ctx, viewport:vp}).promise;
-      $('planMsg').textContent = `Page 1 of ${pdf.numPages} — tap to place the marker.`;
+      $('planMsg').textContent = "Tap to place the marker.";
     } else {
       const img = new Image();
       await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src=p.url;});
@@ -559,7 +568,7 @@ $('planCanvas').onclick = ev => {
   const r = $('planCanvas').getBoundingClientRect();
   /* normalised 0-1: survives any screen size, zoom or re-render */
   const x = (ev.clientX-r.left)/r.width, y = (ev.clientY-r.top)/r.height;
-  pendingLoc = {plan_id:$('planSelect').value, page: pendingLoc?.page || 1, x, y};
+  pendingLoc = {...picked(), x, y};
   showPin(x,y);
   $('planMsg').textContent = `x ${x.toFixed(3)} · y ${y.toFixed(3)}`;
 };

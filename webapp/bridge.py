@@ -164,7 +164,11 @@ def _sheets(data: dict, observations: list[Observation], plans_dir: Path, work_d
         label = _plan_label(plan)
         for sheet in pages:
             sheet.id = sheet_id(plan_id, sheet.page_index + 1)
-            sheet.name = label if len(pages) == 1 else f"{label}, page {sheet.page_index + 1}"
+            labels = plan.get("page_labels") or []
+            n = sheet.page_index + 1
+            # a set cut down to chosen sheets names each by its number as uploaded
+            sheet.name = (f"{label}, sheet {labels[n - 1]}" if n <= len(labels)
+                          else label if len(pages) == 1 else f"{label}, page {n}")
             sheets.append(sheet)
     return sheets
 
