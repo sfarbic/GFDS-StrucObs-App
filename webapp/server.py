@@ -793,18 +793,11 @@ def _plan_into_visit(jid, plan, pid):
     return dict(plan, url=f"/uploads/{pid}/plans/{plan['file']}")
 
 
-PLAN_KEYS = ("plan_id", "name", "url", "pages", "page_labels")
+PLAN_KEYS = ("plan_id", "name", "url", "pages", "page_labels", "sheet_nos")
 
 
 def _plan_json(job, idx):
     return [{k: pl.get(k) for k in PLAN_KEYS} for pl in job_plans(job, idx)]
-
-
-def sheet_label(plan, page):
-    """The sheet's number in the PDF as uploaded: a set cut down to the
-    chosen sheets keeps them as page_labels."""
-    labels = plan.get("page_labels") or []
-    return labels[page - 1] if 0 < page <= len(labels) else page
 
 
 def _parse_pages(raw, total):
@@ -842,11 +835,27 @@ def api_job_plans(jid):
         return jsonify(plans=out)
 
 
-def add_job_plan(jid, f, pages=None):
+def _clean_sheet_nos(raw, count):
+    """The sheet numbers typed in the sheet picker, one per kept sheet, or
+    None when none were sent (or they do not line up with the sheets)."""
+    if raw in (None, ""):
+        return None
+    try:
+        nos = json.loads(raw)
+    except ValueError:
+        raise ApiError("sheet_nos must be a JSON list")
+    if not isinstance(nos, list) or len(nos) != count:
+        return None
+    return [str(n or "").strip()[:20] for n in nos]
+
+
+def add_job_plan(jid, f, pages=None, sheet_nos=None):
     """Save an uploaded plan set to the project and copy it into every site
     visit. pages ("1,3,5") keeps only those sheets of a PDF, each remembered
-    by its original number. Returns (jobs, job, idx, the project's plan
-    record). Call under the lock."""
+    by its original number. sheet_nos (a JSON list, one per kept sheet) are
+    the sheet numbers as confirmed in the sheet picker; without them they are
+    read from each sheet's title block. Returns (jobs, job, idx, the
+    project's plan record). Call under the lock."""
     name = os.path.basename(f.filename)
     jobs = load_jobs()
     job = need_job(jobs, jid)
@@ -876,6 +885,16 @@ def add_job_plan(jid, f, pages=None):
             _keep_pages(path, keep)
             plan["pages"] = len(keep)
             plan["page_labels"] = keep
+    if name.lower().endswith(".pdf"):
+        nos = _clean_sheet_nos(sheet_nos, plan["pages"])
+        if nos is None:
+            try:
+                from sitescribe import plans as plan_sheets
+                nos = plan_sheets.read_sheet_numbers(path)
+            except Exception as exc:       # an unreadable title block costs only the name
+                print(f"[sitescribe] no sheet numbers from {path}: {exc!r}", file=sys.stderr)
+                nos = []
+        plan["sheet_nos"] = nos
     plans.append(plan)
     save_jobs(jobs)
     for v in visits:
@@ -897,7 +916,8 @@ def api_job_plan_upload(jid):
     if not f.filename.lower().endswith((".pdf", ".png", ".jpg", ".jpeg")):
         raise ApiError("plans must be a PDF or an image")
     with _lock:
-        _, job, idx, plan = add_job_plan(jid, f, request.form.get("pages"))
+        _, job, idx, plan = add_job_plan(jid, f, request.form.get("pages"),
+                                         request.form.get("sheet_nos"))
         return jsonify(plan={k: plan.get(k) for k in PLAN_KEYS}, plans=_plan_json(job, idx))
 
 
@@ -1325,15 +1345,12 @@ def previous_items(idx, entry):
 
 
 def _plan_place(plans, loc):
-    """"S-201" or "S-201, page 2" for a pinned entry, "" otherwise."""
+    """The pinned sheet's name for a Location line ("S1.0", see
+    plans.sheet_title), "" when the entry has no pin."""
     if not loc or loc.get("plan_id") not in plans:
         return ""
-    plan = plans[loc["plan_id"]]
-    label = re.sub(r"\.(pdf|png|jpe?g|heic)$", "", str(plan.get("name") or plan.get("file") or ""),
-                   flags=re.IGNORECASE)
-    if plan.get("page_labels"):
-        return f"{label}, sheet {sheet_label(plan, loc.get('page') or 1)}"
-    return label if (plan.get("pages") or 1) == 1 else f"{label}, page {loc.get('page') or 1}"
+    from sitescribe import plans as plan_sheets
+    return plan_sheets.sheet_title(plans[loc["plan_id"]], int(loc.get("page") or 1))
 
 
 @app.route("/api/projects")

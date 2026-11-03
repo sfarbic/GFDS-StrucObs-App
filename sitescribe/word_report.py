@@ -449,8 +449,15 @@ def _page_area(section) -> tuple[float, float]:
             (section.page_height - section.top_margin - section.bottom_margin) / 914400)
 
 
-# room on a plan page for its "Plan Sheets" / sheet name lines above the image
-_PLAN_TITLE_IN = 0.85
+# room on a plan page for its Photo Locations / Plan Set / Date / Sheet lines
+_PLAN_TITLE_IN = 1.25
+
+
+def _plan_heading(project: Project, sheet: PlanSheet) -> dict:
+    """{set, date, sheet} for the lines over a plan page (bridge puts them in
+    report_options["plan_headings"]); the sheet's name when they are absent."""
+    known = (project.report_options or {}).get("plan_headings") or {}
+    return known.get(sheet.id) or {"set": sheet.name, "date": "", "sheet": ""}
 
 
 def _safe_name(text: str) -> str:
@@ -665,30 +672,36 @@ class _Writer:
     # -- 3. plan sheets ----------------------------------------------------
     def plan_sheets(self, project: Project, entries: list[_Entry], tmp: Path):
         from docx.enum.text import WD_ALIGN_PARAGRAPH
-        from docx.shared import Inches
+        from docx.shared import Pt
 
         pinned = {e.obs.pin.sheet_id for e in entries if e.obs.pin is not None}
         sheets = [s for s in project.plans if s.id in pinned]
         if not sheets:
             return
-        self.heading("Plan Sheets").paragraph_format.page_break_before = True
         avail_w, avail_h = _page_area(self.doc.sections[-1])
         legend_shown = False
         for i, sheet in enumerate(sheets):
             img, has_legend = _plan_image(project, sheet, entries, tmp)
             if img is None:
                 continue
+            # each sheet on a page of its own under its Photo Locations lines
+            h = _plan_heading(project, sheet)
+            title = self.heading("Photo Locations")
+            title.paragraph_format.page_break_before = True
+            lines = [("Plan Set: ", h["set"]), ("Date: ", h["date"]), ("Sheet: ", h["sheet"])]
+            for label, value in [x for x in lines if x[1]]:
+                cap = self.body("")
+                cap.add_run(label).bold = True
+                cap.add_run(value)
+                cap.paragraph_format.space_after = Pt(0)
+                cap.paragraph_format.keep_with_next = True
+            room = _PLAN_TITLE_IN
             if not has_legend and not legend_shown:
-                # plan_markup burns a legend into the sheet; ours only has to
-                # go in when we drew the pins
+                # plan_markup draws a legend beside the sheet; ours only has
+                # to go in when we drew the pins, once
                 self.legend()
                 legend_shown = True
-            cap = self.body(sheet.name)
-            cap.runs[0].bold = True
-            cap.paragraph_format.keep_with_next = True
-            cap.paragraph_format.page_break_before = i > 0     # one sheet per page
-            # the legend line only sits on the first page
-            room = _PLAN_TITLE_IN + (0.35 if i == 0 else 0)
+                room += 0.35
             stream, size = _plan_on_page(img, avail_w - 0.05, avail_h - room)
             p = self.doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -967,7 +980,8 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
         items[].severity, .severity_color, .tags, .time, .captions [str],
         action_items [{number, severity, action, action_list}],
         photo_log [{number, time, sheet, severity, description}],
-        plans [{name, image}]
+        plans [{name, set, date, sheet, image}]   one page each: Photo
+                                              Locations, Plan Set, Date, Sheet
     """
     from docx.shared import Inches
     from docxtpl import InlineImage, Listing
@@ -1026,7 +1040,8 @@ def _template_context(tpl, project: Project, entries: list[_Entry], tmp: Path) -
             img, _ = _plan_image(project, sheet, entries, tmp)
             if img is not None:
                 stream, size = _plan_on_page(img, avail_w - 0.05, avail_h - _PLAN_TITLE_IN)
-                plans.append({"name": sheet.name, "image": InlineImage(tpl, stream, **size)})
+                plans.append({"name": sheet.name, **_plan_heading(project, sheet),
+                              "image": InlineImage(tpl, stream, **size)})
 
     # Nothing is written into the record that the engineer did not enter:
     # the stage and the conformance statement stay blank unless given.

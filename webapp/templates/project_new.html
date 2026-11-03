@@ -25,7 +25,7 @@
   <div id="planList"></div>
   <button class="ghost wide" id="planAdd" style="margin-top:6px">+ Add plan (PDF or image)</button>
   <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
-  <div class="hint">A PDF with several sheets lets you pick which sheets to keep.</div>
+  <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
 
   <button class="wide" id="create" style="margin-top:16px">Create project</button>
 </div></div>
@@ -45,7 +45,7 @@ $('number').oninput = () => {
 /* plans are held here, each with the sheets picked from it, and uploaded
    once the project exists */
 const mb = f => (f.size / 1048576).toFixed(1) + " MB";
-const sheets = p => p.pages ? `${p.pages.split(",").length} sheet${p.pages.includes(",") ? "s" : ""}` : mb(p.file);
+const sheets = p => p.sheet_nos ? `${p.sheet_nos.length} sheet${p.sheet_nos.length === 1 ? "" : "s"}` : mb(p.file);
 function renderPlans(){
   $('planList').innerHTML = plans.map((p, i) => `
     <div class="plan"><span class="nm">${esc(p.file.name)}</span><span class="meta">${sheets(p)}</span>
@@ -58,8 +58,8 @@ $('planInput').onchange = async ev => {
   const files = [...ev.target.files]; ev.target.value = "";
   for (const file of files){
     try{
-      const pages = await PlanSheets.choose(file);      // null: the user cancelled this one
-      if (pages !== null) plans.push({file, pages});
+      const pick = await PlanSheets.choose(file);       // null: the user cancelled this one
+      if (pick !== null) plans.push({file, ...pick});
     }catch(err){ say(`${file.name}: ${err.message}`, "bad"); }
     renderPlans();
   }
@@ -81,6 +81,7 @@ $('create').onclick = async () => {
     $('create').textContent = `Uploading plan ${i + 1} of ${plans.length}…`;
     const fd = new FormData(); fd.append("plan", p.file);
     if (p.pages) fd.append("pages", p.pages);
+    if (p.sheet_nos) fd.append("sheet_nos", JSON.stringify(p.sheet_nos));
     try{ await api(`/api/jobs/${j.job_id}/plans`, {method:"POST", body: fd}); }
     catch(err){ failed.push(`${p.file.name}: ${err.message}`); }
   }

@@ -519,10 +519,14 @@ $('toolLoc').onclick = openPlan;
 async function openPlan(){
   if (!plans.length)
     return say("No plans yet — add them on the project page: Edit → Plans.","bad");
-  /* one choice per sheet: "S-set.pdf — sheet 7" (its number as uploaded) */
+  /* one choice per sheet: "S1.0 — Martis Camp Structure" by its sheet number,
+     else "Martis Camp Structure — sheet 7" (its number as uploaded) */
+  const setName = p => String(p.name || "").replace(/\.(pdf|png|jpe?g)$/i, "").replace(/^\d{6}[\s_-]+/, "");
   $('planSelect').innerHTML = plans.flatMap(p => Array.from({length: p.pages || 1}, (_, i) => {
+    const no = ((p.sheet_nos || [])[i] || "").trim();
     const label = (p.page_labels || [])[i] || i + 1;
-    const nm = (p.pages || 1) > 1 || p.page_labels ? `${esc(p.name)} — sheet ${label}` : esc(p.name);
+    const nm = no ? `${esc(no)} — ${esc(setName(p))}`
+      : (p.pages || 1) > 1 || p.page_labels ? `${esc(setName(p))} — sheet ${label}` : esc(setName(p));
     return `<option value="${p.plan_id}|${i + 1}">${nm}</option>`;
   })).join("");
   const e = cur().e;

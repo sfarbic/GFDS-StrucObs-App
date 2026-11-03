@@ -68,7 +68,7 @@ def test_plain_report_has_all_sections(tmp_path):
     doc = Document(str(out))
     text = _text(doc)
     for expected in ("Site Visit Report", "99 Green St Remodel", "260XX.00", "Summary",
-                     "Framing about 80% complete.", "Plan Sheets", "Observations",
+                     "Framing about 80% complete.", "Photo Locations", "Observations",
                      "ITEM 3.1", "ITEM 3.2", "ITEM 5", "Location:\tS-201 Second Floor Framing Plan",
                      "Looking north", "Action Items", "Photo Log", "1) Install stud on both sides"):
         assert expected in text, expected
@@ -88,7 +88,7 @@ def test_report_options_turn_sections_off(tmp_path):
                                                  "include_photo_log": False})
     doc = Document(str(word_report.build_report(project, tmp_path / "r.docx")))
     text = _text(doc)
-    assert "Plan Sheets" not in text and "Photo Log" not in text
+    assert "Photo Locations" not in text and "Photo Log" not in text
     assert _picture_count(doc) == 4
 
 

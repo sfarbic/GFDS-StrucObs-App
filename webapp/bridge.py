@@ -69,7 +69,8 @@ def to_project(data: dict, *, name: str, item_dir: Callable[[str], Path | str],
     if visit_no:
         for obs in observations:
             obs.label = f"{visit_no}.{obs.number}"
-    sheets = _sheets(data, observations, Path(plans_dir), Path(work_dir))
+    headings: dict = {}
+    sheets = _sheets(data, observations, Path(plans_dir), Path(work_dir), headings)
     project = Project(
         name=name,
         site_address=str(data.get("site_address") or ""),
@@ -78,7 +79,7 @@ def to_project(data: dict, *, name: str, item_dir: Callable[[str], Path | str],
         template_path=Path(template) if template else None,
         observations=observations,
         summary=str(data.get("summary") or ""),
-        report_options=dict(data.get("report_options") or {}),
+        report_options={**(data.get("report_options") or {}), "plan_headings": headings},
     )
     if visit_date is not None:
         project.visit_date = visit_date
@@ -145,10 +146,12 @@ def observation(item: dict, ph: dict, path: Path | None, *, folder: Path | None 
     return obs
 
 
-def _sheets(data: dict, observations: list[Observation], plans_dir: Path, work_dir: Path) -> list[PlanSheet]:
+def _sheets(data: dict, observations: list[Observation], plans_dir: Path, work_dir: Path,
+            headings: dict) -> list[PlanSheet]:
     """One PlanSheet per page of every plan that has at least one pin on it,
     rendered to PNG under work_dir. Plans nobody pinned are skipped: the
-    report only shows pinned sheets, and rendering is the slow part."""
+    report only shows pinned sheets, and rendering is the slow part.
+    headings gets each sheet's {set, date, sheet} lines, by sheet id."""
     pinned = {obs.pin.sheet_id for obs in observations if obs.pin is not None and obs.include}
     sheets: list[PlanSheet] = []
     for plan in data.get("plans", []):
@@ -161,22 +164,14 @@ def _sheets(data: dict, observations: list[Observation], plans_dir: Path, work_d
         if not source.exists():
             continue
         pages = plans.load_plan_set(source, work_dir / str(plan_id))
-        label = _plan_label(plan)
         for sheet in pages:
-            sheet.id = sheet_id(plan_id, sheet.page_index + 1)
-            labels = plan.get("page_labels") or []
             n = sheet.page_index + 1
-            # a set cut down to chosen sheets names each by its number as uploaded
-            sheet.name = (f"{label}, sheet {labels[n - 1]}" if n <= len(labels)
-                          else label if len(pages) == 1 else f"{label}, page {n}")
+            sheet.id = sheet_id(plan_id, n)
+            # "S1.0" where the sheet number is known, else the set and its number
+            sheet.name = plans.sheet_title(plan, n)
+            headings[sheet.id] = plans.sheet_heading(plan, n)
             sheets.append(sheet)
     return sheets
-
-
-def _plan_label(plan: dict) -> str:
-    """The plan's name without a trailing file extension: "S-201.pdf" -> "S-201"."""
-    label = str(plan.get("name") or plan["file"]).strip()
-    return re.sub(r"\.(pdf|png|jpe?g|heic)$", "", label, flags=re.IGNORECASE) or label
 
 
 def sheet_id(plan_id, page) -> str:

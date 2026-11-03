@@ -317,7 +317,7 @@ def test_a_plan_keeps_only_the_chosen_sheets_named_by_their_original_number(clie
     _visit(client, jid, 1)
     _entry(client, description="On sheet five", action="Fix it.",
            location={"plan_id": plan["plan_id"], "page": 2, "x": .5, "y": .5})
-    assert "Set, sheet 5" in _report(client)
+    assert "Set, sheet 5" in _report(client)          # its sheet number unreadable: by its number
 
     bad = client.post(f"/api/jobs/{jid}/plans", content_type="multipart/form-data",
                       data={"plan": (io.BytesIO(doc.tobytes()), "Set.pdf"), "pages": "0,9"})
@@ -335,3 +335,31 @@ def test_an_item_with_nothing_in_it_is_left_out_of_the_report(client):
     assert "ITEM 1.2" not in text
     visit = client.get(f"/api/jobs/{jid}").get_json()["visits"][0]
     assert visit["project_id"] == v1["project_id"] and visit["included"] == 2
+
+
+def test_sheet_numbers_name_the_location_and_head_the_plan_page(client):
+    from sitescribe import plans as plan_sheets
+    assert plan_sheets.set_info("220627 Martis Camp Structure - Permit Addendum.pdf") == \
+        ("Martis Camp Structure - Permit Addendum", "06/27/2022")
+    assert plan_sheets.set_info("Framing.pdf") == ("Framing", "")
+
+    jid = _job(client)["job_id"]
+    doc = pymupdf.open()
+    for number in ("S1.0", "S2.0"):
+        page = doc.new_page(width=2592, height=1728)
+        page.insert_text((2400, 1660), number, fontsize=40)      # the title block corner
+        page.insert_text((300, 300), "A9", fontsize=60)           # not in the corner
+    upload = lambda data: client.post(f"/api/jobs/{jid}/plans", content_type="multipart/form-data",
+                                      data=data).get_json()["plan"]
+    read = upload({"plan": (io.BytesIO(doc.tobytes()), "220627 Martis Camp.pdf")})
+    assert read["sheet_nos"] == ["S1.0", "S2.0"]                   # read from each sheet
+    typed = upload({"plan": (io.BytesIO(doc.tobytes()), "220627 Martis Camp.pdf"),
+                    "pages": "2", "sheet_nos": '["S2.0A"]'})
+    assert typed["sheet_nos"] == ["S2.0A"]                         # as confirmed in the picker
+
+    _visit(client, jid, 1)
+    _entry(client, description="Cracked beam", action="Fix it.",
+           location={"plan_id": read["plan_id"], "page": 1, "x": .5, "y": .5})
+    text = _report(client)
+    assert "Location:\tS1.0" in text
+    assert "Photo Locations" in text and "Martis Camp" in text and "06/27/2022" in text

@@ -118,7 +118,7 @@ def test_to_project_maps_entries_plans_and_captions(client, tmp_path):
 
     # both pages of the pinned plan, rendered, with the ids the pins use
     assert [s.id for s in project.plans] == [f"{plan['plan_id']}:1", f"{plan['plan_id']}:2"]
-    assert project.plans[1].name == "Framing plans, page 2"
+    assert project.plans[1].name == "Framing plans, sheet 2"     # no sheet number to read
     assert all(s.image_path.is_file() for s in project.plans)
     assert project.sheet(cracked.pin.sheet_id).page_index == 1
 
@@ -151,8 +151,8 @@ def test_docx_export_is_the_word_report_module(client):
     assert "ITEM 1.1\tCracked beam at C-4" in text
     assert "ITEM 1.2\tRust at base plate" in text
     assert "Looking north" in text
-    assert "Location:\tFraming plans, page 2" in text
-    assert "Plan Sheets" in text and "Photo Log" in text
+    assert "Location:\tFraming plans, sheet 2" in text
+    assert "Photo Locations" in text and "Photo Log" in text
     assert "Duplicate" not in text and "ITEM 2" not in text
     # one photo + two pinned plan pages
     assert _pictures(doc) == 3

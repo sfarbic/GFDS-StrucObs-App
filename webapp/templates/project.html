@@ -41,7 +41,7 @@
   <div id="planList"></div>
   <button class="ghost wide" id="planAdd" style="margin-top:8px">+ Upload plan (PDF or image)</button>
   <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
-  <div class="hint">A PDF with several sheets lets you pick which sheets to keep.</div>
+  <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
 </div>
 
 <div class="sec row">
@@ -177,12 +177,13 @@ $('planAdd').onclick = () => $('planInput').click();
 $('planInput').onchange = async ev => {
   const files = [...ev.target.files]; ev.target.value = "";
   for (const f of files){
-    let pages;
-    try{ pages = await PlanSheets.choose(f); }           // null: the user cancelled
+    let pick;
+    try{ pick = await PlanSheets.choose(f); }            // null: the user cancelled
     catch(err){ say(`${f.name}: ${err.message}`,"bad"); continue; }
-    if (pages === null) continue;
+    if (pick === null) continue;
     const fd = new FormData(); fd.append("plan", f);
-    if (pages) fd.append("pages", pages);
+    if (pick.pages) fd.append("pages", pick.pages);
+    if (pick.sheet_nos) fd.append("sheet_nos", JSON.stringify(pick.sheet_nos));
     $('planAdd').disabled = true; $('planAdd').textContent = `Uploading ${f.name}…`;
     try{ const r = await api(`/api/jobs/${JID}/plans`, {method:"POST", body:fd});
          renderPlans(r.plans); say(`Plan “${r.plan.name}” added to every site visit.`,"ok"); }
