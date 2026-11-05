@@ -26,10 +26,12 @@ h1{margin:0;font-size:30px;letter-spacing:-.025em}h1 span{color:var(--brand)}
 {% endblock %}
 {% block script %}
 <script>
-Tips.run("home", [
+const homeTips = () => Tips.run("home", [
   {at: 'a.choice[href="/projects/new"]', text: "Start here: enter the project name, number and address, and upload its plans."},
   {at: 'a.choice[href="/projects"]', text: "Find a project you've already set up, by number, name or address."},
   {at: '.gear', text: "App settings."},
 ]);
+// the first time here, ask whether to show the tutorial; tips follow a Yes
+Tips.welcome(homeTips) || homeTips();
 </script>
 {% endblock %}

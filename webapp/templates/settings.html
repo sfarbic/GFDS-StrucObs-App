@@ -14,9 +14,13 @@
 <div class="sec">
   <h2>Tips</h2>
   <div class="card">
-    <button class="ghost wide" id="tipsAgain">Show tips again</button>
-    <div class="hint">Each screen's first-time tips show once on this phone or computer.
-      This brings them all back.</div>
+    <div class="tpl" id="tipsState"></div>
+    <div class="row">
+      <button class="ghost" id="tipsAgain">Show tips again</button>
+      <button class="ghost" id="tipsOff">Turn tips off</button>
+    </div>
+    <div class="hint">Tips point out each screen's main buttons the first time you open it,
+      on this phone or computer.</div>
   </div>
 </div>
 
@@ -65,6 +69,15 @@ $('tplRemove').onclick = async () => {
   catch(err){ say(err.message,"bad"); }
 };
 api('/api/template').then(r => renderTemplate(r.template)).catch(e => say(e.message,"bad"));
-$('tipsAgain').onclick = () => { Tips.reset(); say("Tips are back on. They'll show on each screen the next time you open it.","ok"); };
+function tipsState(){
+  $('tipsState').innerHTML = Tips.on()
+    ? `<b>Tips are on</b><div class="meta">Each screen shows its tips once, the first time you open it.</div>`
+    : `<b>Tips are off</b><div class="meta">No screen shows tips.</div>`;
+  $('tipsOff').hidden = !Tips.on();
+}
+$('tipsAgain').onclick = () => { Tips.reset(); tipsState();
+  say("Tips are back on. They'll show on each screen the next time you open it.","ok"); };
+$('tipsOff').onclick = () => { Tips.off(); tipsState(); say("Tips are off.","ok"); };
+tipsState();
 </script>
 {% endblock %}

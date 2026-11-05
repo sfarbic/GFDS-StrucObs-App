@@ -1,12 +1,19 @@
 {# First-time tips: a few bubbles pointing at a screen's main controls, one
    at a time, shown once per phone or computer.
+
+   The first time the app opens in a browser, Tips.welcome(then) asks
+   whether the user wants a tutorial. Yes turns tips on (then `then` runs
+   the home screen's tips); No turns them off everywhere. Until then, and
+   after a No, no screen shows tips.
      Tips.run("project", [{at: "#btnNewVisit", text: "..."}, ...])
-   shows a screen's tips unless this browser has already seen them; steps
-   whose control is missing or hidden are skipped. The note that they were
-   seen lives in this browser's storage (localStorage), never on the server,
-   so updating the app does not bring them back; bump VERSION[screen] to
-   show one screen's tips once more after a big change. Tips.reset() (App
-   settings → Show tips again) brings them all back. #}
+   shows a screen's tips when they are on and this browser has not seen that
+   screen's yet; steps whose control is missing or hidden are skipped.
+
+   The choice and the "seen" notes live in this browser's storage
+   (localStorage), never on the server, so updating the app does not bring
+   them back; bump VERSION[screen] to show one screen's tips once more after
+   a big change. Tips.reset() (App settings → Show tips again) turns them
+   back on for every screen; Tips.off() turns them off. #}
 <style>
 #tipSpot{position:fixed;z-index:1000;border-radius:12px;pointer-events:none;
   box-shadow:0 0 0 3px #fff,0 0 0 9999px rgba(10,14,18,.55);transition:all .18s ease}
@@ -18,18 +25,36 @@
 #tipBox .tp-row button{flex:1;padding:9px;border-radius:9px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
 #tipBox .tp-skip{background:transparent;color:var(--mut,#667085);border:1px solid var(--line,#e4e7ec)}
 #tipBox .tp-next{background:var(--accent,#2b3036);color:var(--accent-fg,#fff);border:0}
+/* the first-time welcome */
+#tipWelcome{position:fixed;inset:0;z-index:1002;display:grid;place-items:center;padding:20px;
+  background:rgba(10,14,18,.6)}
+#tipWelcome .tw-card{width:min(360px,100%);background:var(--card,#fff);color:var(--fg,#14181d);
+  border-radius:16px;padding:24px 20px 18px;text-align:center;box-shadow:0 12px 32px rgba(0,0,0,.3)}
+#tipWelcome img{width:64px;height:auto;display:block;margin:0 auto 12px}
+#tipWelcome h2{margin:0 0 8px;font-size:20px;letter-spacing:-.015em}
+#tipWelcome h2 span{color:var(--brand,#ad2112)}
+#tipWelcome p{margin:0 0 8px;font-size:14.5px;line-height:1.5;color:var(--fg,#14181d)}
+#tipWelcome p.tw-q{font-weight:650;margin-top:12px}
+#tipWelcome .tw-row{display:grid;gap:8px;margin-top:14px}
+#tipWelcome .tw-row button{padding:13px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+#tipWelcome .tw-yes{background:var(--accent,#2b3036);color:var(--accent-fg,#fff);border:0}
+#tipWelcome .tw-no{background:transparent;color:var(--fg,#14181d);border:1px solid var(--line,#e4e7ec)}
+#tipWelcome small{display:block;margin-top:10px;color:var(--mut,#667085);font-size:12px}
 </style>
 <script>
 window.Tips = (() => {
   const PREFIX = "gfdsTips:";
+  const CHOICE = PREFIX + "choice";        // "on" after a Yes, "off" after a No
   const VERSION = {};                      // e.g. {items: 2} to show the items tips again
+  const choice = () => { try{ return localStorage.getItem(CHOICE) || ""; }catch(e){ return "off"; } };
+  const choose = v => { try{ localStorage.setItem(CHOICE, v); }catch(e){} };
   const key = screen => `${PREFIX}${screen}:v${VERSION[screen] || 1}`;
   const seen = screen => { try{ return !!localStorage.getItem(key(screen)); }catch(e){ return true; } };
   const mark = screen => { try{ localStorage.setItem(key(screen), new Date().toISOString()); }catch(e){} };
   const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
 
   function run(screen, steps, {force = false} = {}){
-    if (!force && seen(screen)) return;
+    if (!force && (choice() !== "on" || seen(screen))) return;
     if (document.querySelector('dialog[open]')) return;      // never over a dialog
     const list = steps.map(s => ({...s, el: document.querySelector(s.at)})).filter(s => visible(s.el));
     if (!list.length) return;
@@ -66,10 +91,37 @@ window.Tips = (() => {
     show();
   }
 
+  /* the first time the app opens here: ask, before any tip shows. true when
+     it asked (`then` runs after a Yes), false when the choice is already made */
+  function welcome(then = () => {}){
+    if (choice()) return false;
+    const w = document.createElement("div"); w.id = "tipWelcome";
+    w.setAttribute("role", "dialog"); w.setAttribute("aria-modal", "true");
+    w.innerHTML = `<div class="tw-card">
+      <img src="/static/gfds-logo.png" alt="GFDS Engineers">
+      <h2>Welcome to GFDS <span>Observation App</span></h2>
+      <p>This looks like your first time using the app on this phone or computer.</p>
+      <p class="tw-q">Would you like a quick tutorial?</p>
+      <p style="color:var(--mut,#667085);font-size:13px">Short tips point out the main buttons the first
+        time you open each screen.</p>
+      <div class="tw-row"><button class="tw-yes">Yes, show me around</button>
+        <button class="tw-no">No thanks</button></div>
+      <small>You can change this anytime in App settings.</small></div>`;
+    document.body.append(w);
+    w.querySelector('.tw-yes').onclick = () => { choose("on"); w.remove(); then(); };
+    w.querySelector('.tw-no').onclick = () => { choose("off"); w.remove(); };
+    w.querySelector('.tw-yes').focus();
+    return true;
+  }
+
+  /* App settings: tips back on for every screen, or off everywhere */
   function reset(){
     try{ Object.keys(localStorage).filter(k => k.startsWith(PREFIX)).forEach(k => localStorage.removeItem(k)); }
     catch(e){}
+    choose("on");
   }
-  return {run, reset};
+  const off = () => choose("off");
+  const on = () => choice() === "on";
+  return {run, welcome, reset, off, on};
 })();
 </script>
