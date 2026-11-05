@@ -9,10 +9,12 @@
 {% block content %}
 <div class="top">
   <a class="back" href="/" title="Home">&lsaquo;</a>
-  <div class="t"><b>New project</b><small>Project information</small></div>
+  <div class="t"><b>New project</b><small>Project information and plans</small></div>
 </div>
 
-<div class="sec"><div class="card">
+<div class="sec">
+  <h2>Project information</h2>
+  <div class="card">
   <label class="f" for="name">Project name</label>
   <input type="text" id="name" maxlength="120" autocomplete="off" placeholder="e.g. Elm St Retrofit">
   <label class="f" for="number">Project number</label>
@@ -20,16 +22,23 @@
   <div class="warnTxt" id="dupWarn" hidden></div>
   <label class="f" for="address">Project address <small>(optional)</small></label>
   <input type="text" id="address" maxlength="300" autocomplete="off" placeholder="Street, city">
+  </div>
+</div>
 
-  <label class="f" style="margin-top:18px">Plans <small>(optional — you can add more later under Edit)</small></label>
-  <div id="planList"></div>
-  <button class="ghost wide" id="planAdd" style="margin-top:6px">+ Add plan (PDF or image)</button>
-  <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
-  <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
+<div class="sec">
+  <h2>Plans <span style="text-transform:none;letter-spacing:0;font-weight:500">(optional — more can be added later)</span></h2>
+  <div class="card">
+    <div id="planDrop"></div>
+    <div id="planList" style="margin-top:8px"></div>
+    <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
+  </div>
+</div>
 
-  <button class="wide" id="create" style="margin-top:16px">Create project</button>
-</div></div>
+<div class="sec">
+  <button class="wide" id="create">Create project</button>
+</div>
 {% include "_plan_sheets.html" %}
+{% include "_plan_drop.html" %}
 {% endblock %}
 {% block script %}
 <script>
@@ -53,9 +62,7 @@ function renderPlans(){
   $('planList').querySelectorAll('button').forEach(b => b.onclick = () => {
     plans.splice(+b.dataset.i, 1); renderPlans(); });
 }
-$('planAdd').onclick = () => $('planInput').click();
-$('planInput').onchange = async ev => {
-  const files = [...ev.target.files]; ev.target.value = "";
+PlanDrop.attach($('planDrop'), async files => {
   for (const file of files){
     try{
       const pick = await PlanSheets.choose(file);       // null: the user cancelled this one
@@ -63,7 +70,7 @@ $('planInput').onchange = async ev => {
     }catch(err){ say(`${file.name}: ${err.message}`, "bad"); }
     renderPlans();
   }
-};
+});
 
 $('create').onclick = async () => {
   const body = {name: $('name').value.trim(), number: $('number').value.trim(),
@@ -71,10 +78,10 @@ $('create').onclick = async () => {
   if (!body.name) return say("Enter a project name.","bad");
   if (!body.number) return say("Enter a project number.","bad");
   if (!$('dupWarn').hidden && !confirm(`${$('dupWarn').textContent}\n\nCreate another with the same number?`)) return;
-  $('create').disabled = true; $('planAdd').disabled = true;
+  $('create').disabled = true; PlanDrop.busy($('planDrop'), true);
   let j;
   try{ j = await api('/api/jobs', {method:"POST", json: body}); }
-  catch(err){ say(err.message,"bad"); $('create').disabled = false; $('planAdd').disabled = false; return; }
+  catch(err){ say(err.message,"bad"); $('create').disabled = false; PlanDrop.busy($('planDrop'), false); return; }
   // the project exists now; a plan that fails can be added again under Edit
   const failed = [];
   for (const [i, p] of plans.entries()){

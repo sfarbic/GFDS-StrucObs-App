@@ -29,21 +29,28 @@
   <button class="ghost sm" id="btnEdit">Edit project info</button>
 </div>
 
-<div class="sec card" id="editBox" hidden>
-  <label class="f" for="eName">Project name</label><input type="text" id="eName" maxlength="120">
-  <label class="f" for="eNumber">Project number</label><input type="text" id="eNumber" maxlength="40">
-  <label class="f" for="eAddress">Project address <small>(optional)</small></label>
-  <input type="text" id="eAddress" maxlength="300">
-  <div class="row" style="margin-top:14px">
-    <button class="ghost" id="eCancel">Cancel</button><button id="eSave">Save</button></div>
-
-  <label class="f" style="margin-top:20px">Plans <small>(every site visit uses these for pin locations)</small></label>
-  <div id="planList"></div>
-  <button class="ghost wide" id="planAdd" style="margin-top:8px">+ Upload plan (PDF or image)</button>
-  <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
-  <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
-
-  <div style="text-align:center;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)">
+<div id="editBox" hidden>
+  <div class="sec">
+    <h2>Project information</h2>
+    <div class="card">
+      <label class="f" for="eName">Project name</label><input type="text" id="eName" maxlength="120">
+      <label class="f" for="eNumber">Project number</label><input type="text" id="eNumber" maxlength="40">
+      <label class="f" for="eAddress">Project address <small>(optional)</small></label>
+      <input type="text" id="eAddress" maxlength="300">
+      <div class="row" style="margin-top:14px">
+        <button class="ghost" id="eCancel">Cancel</button><button id="eSave">Save</button></div>
+    </div>
+  </div>
+  <div class="sec">
+    <h2>Plans <span style="text-transform:none;letter-spacing:0;font-weight:500">(every site visit uses these)</span></h2>
+    <div class="card">
+      <div id="planDrop"></div>
+      <div id="planList" style="margin-top:8px"></div>
+      <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.
+        A plan added here is saved straight away.</div>
+    </div>
+  </div>
+  <div class="sec" style="text-align:center">
     <button class="danger sm" id="btnDelete">Delete project</button>
   </div>
 </div>
@@ -61,6 +68,7 @@
   <button class="ghost wide" id="btnReport">Generate report</button>
 </div>
 {% include "_plan_sheets.html" %}
+{% include "_plan_drop.html" %}
 {% endblock %}
 {% block script %}
 <script>
@@ -138,9 +146,7 @@ Every site visit loses it, and pins placed on it are removed.`)) return;
     catch(err){ say(err.message,"bad"); }
   });
 }
-$('planAdd').onclick = () => $('planInput').click();
-$('planInput').onchange = async ev => {
-  const files = [...ev.target.files]; ev.target.value = "";
+PlanDrop.attach($('planDrop'), async files => {
   for (const f of files){
     let pick;
     try{ pick = await PlanSheets.choose(f); }            // null: the user cancelled
@@ -149,13 +155,13 @@ $('planInput').onchange = async ev => {
     const fd = new FormData(); fd.append("plan", f);
     if (pick.pages) fd.append("pages", pick.pages);
     if (pick.sheet_nos) fd.append("sheet_nos", JSON.stringify(pick.sheet_nos));
-    $('planAdd').disabled = true; $('planAdd').textContent = `Uploading ${f.name}…`;
+    PlanDrop.busy($('planDrop'), true); say(`Uploading ${f.name}…`, "warn");
     try{ const r = await api(`/api/jobs/${JID}/plans`, {method:"POST", body:fd});
          renderPlans(r.plans); say(`Plan “${r.plan.name}” added to every site visit.`,"ok"); }
     catch(err){ say(err.message,"bad"); }
-    finally{ $('planAdd').disabled = false; $('planAdd').textContent = "+ Upload plan (PDF or image)"; }
+    finally{ PlanDrop.busy($('planDrop'), false); }
   }
-};
+});
 $('eCancel').onclick = () => { $('editBox').hidden = true; $('btnEdit').textContent = "Edit project info"; };
 $('eSave').onclick = async () => {
   const body = {name: $('eName').value.trim(), number: $('eNumber').value.trim(),

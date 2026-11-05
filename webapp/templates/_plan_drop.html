@@ -1,0 +1,59 @@
+{# A drop zone for plan files, shared by New project and Edit project info.
+   PlanDrop.attach(el, onFiles) fills `el` with the dashed box: drag PDFs or
+   images onto it (on a computer), or click / tap it to browse. onFiles gets
+   the accepted files, in order; anything else dropped is named in a note.
+   PlanDrop.busy(el, true) holds it while plans upload. #}
+<style>
+.pdrop{display:grid;place-items:center;gap:4px;text-align:center;padding:22px 14px;cursor:pointer;
+  border:2px dashed color-mix(in srgb,var(--mut) 60%,transparent);border-radius:12px;
+  background:var(--bg);color:var(--mut);
+  transition:border-color .12s,background .12s}
+.pdrop:hover,.pdrop:focus-visible{border-color:var(--accent);outline:none}
+.pdrop.over{border-color:var(--accent);background:var(--card2)}
+.pdrop.busy{opacity:.5;pointer-events:none}
+.pdrop svg{width:34px;height:34px;color:var(--fg)}
+.pdrop b{font-size:14.5px;color:var(--fg);font-weight:650}
+.pdrop span{font-size:13px}
+.pdrop .bro{color:var(--accent);font-weight:600;text-decoration:underline}
+.pdrop-note{font-size:12.5px;color:var(--warn);margin-top:6px;min-height:0}
+</style>
+<script>
+window.PlanDrop = (() => {
+  const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"/></svg>`;
+  const ok = f => f.type === "application/pdf" || /\.pdf$/i.test(f.name) || (f.type || "").startsWith("image/");
+  /* a file dropped beside the box must not make the browser leave the page to open it */
+  ["dragover", "drop"].forEach(t => window.addEventListener(t, ev => ev.preventDefault()));
+
+  function attach(el, onFiles){
+    const input = document.createElement("input");
+    input.type = "file"; input.multiple = true; input.hidden = true;
+    input.accept = "application/pdf,image/*";
+    const note = document.createElement("div");
+    note.className = "pdrop-note";
+    el.after(note); el.after(input);
+    el.classList.add("pdrop");
+    el.setAttribute("role", "button"); el.tabIndex = 0;
+    el.innerHTML = `${ICON}<b>Drag and drop plan PDFs here</b>
+      <span>or <span class="bro">click to browse</span> · PDFs or images</span>`;
+
+    const take = files => {
+      const good = files.filter(ok), bad = files.filter(f => !ok(f));
+      note.textContent = bad.length
+        ? `Not a PDF or image, so not added: ${bad.map(f => f.name).join(", ")}` : "";
+      if (good.length) onFiles(good);
+    };
+    el.onclick = () => input.click();
+    el.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); input.click(); } };
+    input.onchange = () => { const files = [...input.files]; input.value = ""; take(files); };
+    let depth = 0;      // dragenter/leave fire for every child, so count them
+    el.addEventListener("dragenter", ev => { ev.preventDefault(); depth++; el.classList.add("over"); });
+    el.addEventListener("dragleave", () => { if (--depth <= 0){ depth = 0; el.classList.remove("over"); } });
+    el.addEventListener("drop", ev => {
+      ev.preventDefault(); depth = 0; el.classList.remove("over");
+      take([...(ev.dataTransfer?.files || [])]);
+    });
+  }
+  const busy = (el, on) => el.classList.toggle("busy", !!on);
+  return {attach, busy};
+})();
+</script>
