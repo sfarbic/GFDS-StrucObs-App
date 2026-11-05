@@ -1,5 +1,5 @@
 {% extends "_base.html" %}
-{% block title %}Site visit — GFDS StrucObs{% endblock %}
+{% block title %}Site visit — GFDS Observation App{% endblock %}
 {% block content %}
 <div class="top">
   <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
@@ -26,6 +26,11 @@
     {% if pid %}<button class="ghost" id="btnSave">Save</button>{% endif %}
     <button id="btnGo">Edit site visit &rsaquo;</button>
   </div>
+  {% if pid %}
+  <div style="text-align:center;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)">
+    <button class="danger sm" id="btnDeleteVisit">Delete this site visit</button>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 {% block script %}
@@ -68,6 +73,12 @@ $('btnGo').onclick = async () => {
 };
 if (PID) $('btnSave').onclick = async () => {
   try{ if (await save()) say("Saved.","ok"); }catch(err){ say(err.message,"bad"); }
+};
+if (PID) $('btnDeleteVisit').onclick = async () => {
+  const v = visits.find(x => x.project_id === PID);
+  if (!confirm(`Delete Site Visit ${v.visit_no}?\n\nIts ${v.photos} item${v.photos===1?"":"s"}, photos and action item updates will be permanently removed. This cannot be undone.`)) return;
+  try{ await api(`/api/projects/${PID}`, {method:"DELETE"}); location.href = `/projects/${JID}`; }
+  catch(err){ say(err.message,"bad"); }
 };
 
 (async () => {

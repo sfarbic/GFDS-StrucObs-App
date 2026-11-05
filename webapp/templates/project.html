@@ -1,34 +1,34 @@
 {% extends "_base.html" %}
-{% block title %}Project — GFDS StrucObs{% endblock %}
+{% block title %}Project — GFDS Observation App{% endblock %}
 {% block style %}
-.info .k{font-size:12px;color:var(--mut)}
-.info .v{font-size:15px;margin-bottom:8px}
-.visit{background:var(--card);border:1px solid var(--line);
-  border-radius:13px;padding:12px 14px;margin-bottom:10px}
-.visit .main{cursor:pointer}
-.visit .acts{display:flex;gap:8px;margin-top:10px}
-.visit .acts .btn:first-child{flex:1}
-.visit .nm{font-weight:650}
-.visit .meta{color:var(--mut);font-size:12.5px}
-.ai{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 14px;
-  margin-bottom:10px}
-.ai .hd{font-size:14px}
-.ai .act{font-size:13.5px;margin-top:4px}
-.ai .act b{color:var(--mut);font-weight:600}
+/* ‹ Back · project name centred, its details small under it · Edit project info */
+.phead{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:10px;
+  padding:14px 0 14px;border-bottom:1px solid var(--line)}
+.phead .ctr{text-align:center;min-width:0}
+.phead .ctr b{display:block;font-size:19px;letter-spacing:-.015em;line-height:1.25}
+.phead .ctr div{color:var(--mut);font-size:12.5px;line-height:1.45}
+.phead .btn.sm{white-space:nowrap}
+.box{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--card)}
+.visit{display:block;width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);
+  border-radius:12px;padding:12px 14px;margin-top:10px;cursor:pointer;color:var(--fg);font:inherit}
+.visit:hover{border-color:var(--accent)}
+.visit .nm{font-weight:650;font-size:15.5px}
+.visit .nm small{color:var(--mut);font-weight:400;font-size:12.5px}
+.visit .meta{color:var(--mut);font-size:12.5px;margin-top:2px}
+.visit .meta .open{color:var(--warn);font-weight:600}
+.bottom{display:grid;gap:10px}
 .plan{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
 .plan .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plan .meta{color:var(--mut);font-size:12.5px}
 .plan button{background:transparent;color:var(--bad);border:0;font-size:18px;padding:0 6px;line-height:1}
-.toggle{background:none;border:0;color:var(--accent);padding:0;font-size:13px;font-weight:600;cursor:pointer}
 {% endblock %}
 {% block content %}
-<div class="top">
+<div class="phead">
   <a class="back" href="/projects" title="All projects">&lsaquo;</a>
-  <div class="t"><b id="title">Loading…</b><small id="sub"></small></div>
-  <button class="ghost sm" id="btnEdit">Edit</button>
+  <div class="ctr" id="info"><b>Loading…</b></div>
+  <button class="ghost sm" id="btnEdit">Edit project info</button>
 </div>
 
-<div class="sec card info" id="info"></div>
 <div class="sec card" id="editBox" hidden>
   <label class="f" for="eName">Project name</label><input type="text" id="eName" maxlength="120">
   <label class="f" for="eNumber">Project number</label><input type="text" id="eNumber" maxlength="40">
@@ -42,106 +42,68 @@
   <button class="ghost wide" id="planAdd" style="margin-top:8px">+ Upload plan (PDF or image)</button>
   <input type="file" id="planInput" hidden multiple accept="application/pdf,image/*">
   <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
-</div>
 
-<div class="sec row">
-  <a class="btn" href="/projects/{{ jid }}/visits/new" id="btnNewVisit">+ New site visit</a>
-  <button class="ghost" id="btnReport">Generate report</button>
+  <div style="text-align:center;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)">
+    <button class="danger sm" id="btnDelete">Delete project</button>
+  </div>
 </div>
 
 <div class="sec">
   <h2>Site visits</h2>
-  <div id="visits"></div>
+  <div class="box">
+    <a class="btn wide" href="/projects/{{ jid }}/visits/new" id="btnNewVisit">+ New site visit</a>
+    <div id="visits"></div>
+  </div>
 </div>
 
-<div class="sec">
-  <h2>Action items <button class="toggle" id="showClosed"></button></h2>
-  <div id="actions"></div>
+<div class="sec bottom">
+  <a class="btn ghost wide" href="/projects/{{ jid }}/actions" id="btnActions">All open action items</a>
+  <button class="ghost wide" id="btnReport">Generate report</button>
 </div>
-
-<div class="sec" style="text-align:center">
-  <button class="danger sm" id="btnDelete">Delete project</button>
-</div>
-{% include "_dictate.html" %}
-{% include "_photos.html" %}
-{% include "_actions.html" %}
 {% include "_plan_sheets.html" %}
 {% endblock %}
 {% block script %}
 <script>
 const JID = {{ jid|tojson }};
-let page = null, showClosed = false;
+let page = null;
 
 function renderInfo(){
   const j = page.job;
-  $('title').textContent = j.name;
-  document.title = `${j.number ? j.number + " " : ""}${j.name} — GFDS StrucObs`;
-  $('sub').textContent = `${j.visits} site visit${j.visits===1?"":"s"}`;
-  $('info').innerHTML = `
-    <div class="k">Project number</div><div class="v"><span class="num">${esc(j.number) || "—"}</span></div>
-    <div class="k">Project name</div><div class="v">${esc(j.name)}</div>
-    <div class="k">Address</div><div class="v" style="margin:0">${esc(j.address) || "—"}</div>`;
+  document.title = `${j.number ? j.number + " " : ""}${j.name} — GFDS Observation App`;
+  $('info').innerHTML = `<b>${esc(j.name)}</b>
+    ${j.number ? `<div>${esc(j.number)}</div>` : ""}
+    ${j.address ? `<div>${esc(j.address)}</div>` : ""}
+    <div>${j.visits} site visit${j.visits===1?"":"s"}</div>`;
 }
 
+/* each visit is one button: its number and date, its items and its open
+   action items; tapping it opens the visit */
+const openIn = v => page.action_items.filter(a => a.pid === v.project_id && a.include && !a.closed_visit_no).length;
 function renderVisits(){
   if (!page.visits.length){
-    $('visits').innerHTML = `<div class="empty">No site visits yet. Start one above.</div>`;
+    $('visits').innerHTML = `<div class="hint" style="text-align:center;margin-top:10px">No site visits yet.</div>`;
     return;
   }
-  $('visits').innerHTML = page.visits.map(v => `
-    <div class="visit" data-pid="${v.project_id}">
-      <div class="main" data-act="open">
-        <div class="nm">Site Visit ${v.visit_no} <span class="meta">· ${shortDate(v.visit_date)}</span></div>
-        <div class="meta">${v.items} item${v.items===1?"":"s"} · ${v.photos} entr${v.photos===1?"y":"ies"}
-          ${v.observed_by ? " · " + esc(v.observed_by) : ""}</div>
-      </div>
-      <div class="acts">
-        <button class="btn sm" data-act="open">Edit site visit</button>
-        <a class="btn ghost sm" href="/visits/${v.project_id}/edit">Visit info</a>
-        <button class="danger sm" data-act="delete" title="Delete site visit">&#128465;</button>
-      </div>
-    </div>`).join("");
-  $('visits').querySelectorAll('.visit').forEach(row => {
-    const pid = row.dataset.pid;
-    row.querySelectorAll('[data-act=open]').forEach(b => b.onclick = () => openVisit(pid));
-    row.querySelector('[data-act=delete]').onclick = () => delVisit(pid);
-  });
-}
-
-function renderActions(){
-  const all = page.action_items.filter(a => a.include);
-  const closed = all.filter(a => a.closed_visit_no).length;
-  $('showClosed').hidden = !closed;
-  $('showClosed').textContent = showClosed ? "· hide closed" : `· show ${closed} closed`;
-  const shown = all.filter(a => showClosed || !a.closed_visit_no);
-  if (!shown.length){
-    $('actions').innerHTML = `<div class="empty">${all.length ? "Every action item is closed."
-      : "No action items yet. Items with an Action appear here."}</div>`;
-    return;
-  }
-  $('actions').innerHTML = shown.map((a, i) => `
-    <div class="ai"><div class="hd"><span class="num">ITEM ${a.label}</span>
-      <span class="pill ${a.closed_visit_no ? "closed" : "open"}">${a.closed_visit_no ? "CLOSED" : "OPEN"}</span>
-      <span style="color:var(--mut);font-size:12.5px"> · Site Visit ${a.visit_no}</span></div>
-      <div class="act">${esc(a.description)}</div>
-      <div class="act"><b>Action:</b> ${esc(a.action)}</div>
-      <div id="ax${i}"></div></div>`).join("");
-  shown.forEach((a, i) => ActionUI.render($('ax' + i), a, () => load()));
+  $('visits').innerHTML = page.visits.map(v => {
+    const n = v.photos, open = openIn(v);
+    return `<button class="visit" data-pid="${v.project_id}">
+      <div class="nm">Site Visit #${v.visit_no} <small>· ${shortDate(v.visit_date)}</small></div>
+      <div class="meta">${n} item${n===1?"":"s"} ·
+        <span class="${open ? "open" : ""}">${open} open action item${open===1?"":"s"}</span></div>
+    </button>`;
+  }).join("");
+  $('visits').querySelectorAll('.visit').forEach(b => b.onclick = () => openVisit(b.dataset.pid));
 }
 
 async function load(){
   page = await api(`/api/jobs/${JID}`);
-  renderInfo(); renderVisits(); renderActions();
+  renderInfo(); renderVisits();
+  const open = page.action_items.filter(a => a.include && !a.closed_visit_no).length;
+  $('btnActions').textContent = `All open action items (${open})`;
 }
 
 async function openVisit(pid){
   try{ await api(`/api/projects/${pid}/open`, {method:"POST"}); location.href = "/capture"; }
-  catch(err){ say(err.message,"bad"); }
-}
-async function delVisit(pid){
-  const v = page.visits.find(x => x.project_id === pid);
-  if (!confirm(`Delete Site Visit ${v.visit_no}?\n\n${v.items} item(s) and ${v.photos} entr${v.photos===1?"y":"ies"} with their photos will be permanently removed. This cannot be undone.`)) return;
-  try{ await api(`/api/projects/${pid}`, {method:"DELETE"}); await load(); say("Site visit deleted.","ok"); }
   catch(err){ say(err.message,"bad"); }
 }
 
@@ -151,11 +113,12 @@ $('btnReport').onclick = () => {
   location.href = `/projects/${JID}/report`;
 };
 
-$('showClosed').onclick = () => { showClosed = !showClosed; renderActions(); };
 $('btnEdit').onclick = () => {
+  if (!$('editBox').hidden) return $('eCancel').click();
   const j = page.job;
   $('eName').value = j.name; $('eNumber').value = j.number; $('eAddress').value = j.address;
-  $('editBox').hidden = false; $('info').hidden = true;
+  $('editBox').hidden = false;
+  $('btnEdit').textContent = "Close";
   api(`/api/jobs/${JID}/plans`).then(r => renderPlans(r.plans)).catch(e => say(e.message,"bad"));
 };
 
@@ -193,7 +156,7 @@ $('planInput').onchange = async ev => {
     finally{ $('planAdd').disabled = false; $('planAdd').textContent = "+ Upload plan (PDF or image)"; }
   }
 };
-$('eCancel').onclick = () => { $('editBox').hidden = true; $('info').hidden = false; };
+$('eCancel').onclick = () => { $('editBox').hidden = true; $('btnEdit').textContent = "Edit project info"; };
 $('eSave').onclick = async () => {
   const body = {name: $('eName').value.trim(), number: $('eNumber').value.trim(),
                 address: $('eAddress').value.trim()};

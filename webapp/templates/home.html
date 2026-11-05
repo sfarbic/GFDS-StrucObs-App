@@ -1,7 +1,8 @@
 {% extends "_base.html" %}
 {% block style %}
-header{padding:44px 0 26px;text-align:center}
-h1{margin:0;font-size:30px;letter-spacing:-.025em}h1 span{color:var(--accent)}
+header{padding:40px 0 26px;text-align:center}
+.logo{display:block;width:92px;height:auto;margin:0 auto 16px}
+h1{margin:0;font-size:30px;letter-spacing:-.025em}h1 span{color:var(--brand)}
 .tag{color:var(--mut);font-size:14px;margin-top:5px}
 .choice{display:block;width:100%;text-align:left;padding:18px;margin-bottom:12px;border-radius:13px}
 .choice b{display:block;font-size:17px}
@@ -14,7 +15,8 @@ h1{margin:0;font-size:30px;letter-spacing:-.025em}h1 span{color:var(--accent)}
     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
 </a>
 <header>
-  <h1>GFDS <span>StrucObs</span></h1>
+  <img class="logo" src="{{ url_for('static', filename='gfds-logo.png') }}" alt="GFDS Engineers">
+  <h1>GFDS <span>Observation App</span></h1>
   <div class="tag">Photo, voice note, and a pin on the plan — straight to a report.</div>
 </header>
 <a class="btn choice" href="/projects/new"><b>+ New project</b>

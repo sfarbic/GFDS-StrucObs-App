@@ -1,0 +1,58 @@
+{% extends "_base.html" %}
+{% block title %}Open action items — GFDS Observation App{% endblock %}
+{% block style %}
+.ai{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 14px;
+  margin-bottom:10px}
+.ai .hd{font-size:14px}
+.ai .act{font-size:13.5px;margin-top:4px}
+.ai .act b{color:var(--mut);font-weight:600}
+.toggle{background:none;border:0;color:var(--accent);padding:0;font-size:13px;font-weight:600;cursor:pointer}
+{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
+  <div class="t"><b id="title">Open action items</b><small id="sub">&nbsp;</small></div>
+</div>
+<div class="sec">
+  <div style="text-align:right;margin-bottom:8px"><button class="toggle" id="showClosed" hidden></button></div>
+  <div id="actions"></div>
+</div>
+{% include "_dictate.html" %}
+{% include "_photos.html" %}
+{% include "_actions.html" %}
+{% endblock %}
+{% block script %}
+<script>
+const JID = {{ jid|tojson }};
+let page = null, showClosed = false;
+
+/* every action item not closed out, from all site visits, by item number;
+   closed ones only when asked for */
+function render(){
+  const all = page.action_items.filter(a => a.include)
+    .sort((x, y) => x.visit_no - y.visit_no || (x.number || 0) - (y.number || 0));
+  const open = all.filter(a => !a.closed_visit_no).length, closed = all.length - open;
+  $('sub').textContent = `${page.job.number ? page.job.number + " · " : ""}${page.job.name} · ${open} open`;
+  $('showClosed').hidden = !closed;
+  $('showClosed').textContent = showClosed ? "Hide closed items" : `Show ${closed} closed item${closed===1?"":"s"}`;
+  const shown = all.filter(a => showClosed || !a.closed_visit_no);
+  if (!shown.length){
+    $('actions').innerHTML = `<div class="empty">${all.length ? "Every action item is closed out."
+      : "No action items yet. Items with an Action appear here."}</div>`;
+    return;
+  }
+  $('actions').innerHTML = shown.map((a, i) => `
+    <div class="ai"><div class="hd"><span class="num">ITEM ${a.label}</span>
+      <span class="pill ${a.closed_visit_no ? "closed" : "open"}">${a.closed_visit_no ? "CLOSED" : "OPEN"}</span>
+      <span style="color:var(--mut);font-size:12.5px"> · Site Visit ${a.visit_no}</span></div>
+      <div class="act">${esc(a.description)}</div>
+      <div class="act"><b>Action:</b> ${esc(a.action)}</div>
+      <div id="ax${i}"></div></div>`).join("");
+  shown.forEach((a, i) => ActionUI.render($('ax' + i), a, () => load()));
+}
+
+async function load(){ page = await api(`/api/jobs/${JID}`); render(); }
+$('showClosed').onclick = () => { showClosed = !showClosed; render(); };
+load().catch(e => say(e.message,"bad"));
+</script>
+{% endblock %}

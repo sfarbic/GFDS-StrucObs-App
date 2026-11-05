@@ -194,7 +194,7 @@ def test_pages_render(client):
     jid = _job(client)["job_id"]
     v1 = _visit(client, jid, 1)
     for path in ("/", "/settings", "/projects", "/projects/new", f"/projects/{jid}",
-                 f"/projects/{jid}/visits/new", f"/projects/{jid}/report",
+                 f"/projects/{jid}/visits/new", f"/projects/{jid}/report", f"/projects/{jid}/actions",
                  f"/visits/{v1['project_id']}/edit", "/capture"):
         assert client.get(path).status_code == 200, path
 
