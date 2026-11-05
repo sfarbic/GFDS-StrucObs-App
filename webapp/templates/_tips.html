@@ -19,16 +19,16 @@
    as the rest dims, then the bubble; Next reverses it before the next one */
 #tipSpot{position:fixed;z-index:1000;border-radius:14px;pointer-events:none;opacity:0;
   box-shadow:0 0 0 3px #fff,0 0 0 6px var(--brand,#ad2112),0 0 0 9999px rgba(10,14,18,.55);
-  transition:opacity .45s ease}
+  transition:opacity .25s ease}
 #tipSpot.on{opacity:1}
 #tipSpot::after{content:"";position:absolute;inset:-6px;border-radius:inherit;
   border:3px solid var(--brand,#ad2112);opacity:0}
-#tipSpot.on::after{animation:tipPulse 1.6s ease-out .4s infinite}
+#tipSpot.on::after{animation:tipPulse 1.6s ease-out .25s infinite}
 @keyframes tipPulse{0%{transform:scale(1);opacity:.85}100%{transform:scale(1.15);opacity:0}}
 #tipBox{position:fixed;z-index:1001;width:min(320px,calc(100vw - 24px));background:var(--card,#fff);
   color:var(--fg,#14181d);border:1px solid var(--line,#e4e7ec);border-radius:12px;padding:12px 14px;
   box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:14.5px;line-height:1.45;
-  opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .25s ease,transform .25s ease}
+  opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s ease,transform .2s ease}
 #tipBox.on{opacity:1;transform:none;pointer-events:auto}
 @media (prefers-reduced-motion:reduce){
   #tipSpot,#tipBox{transition:none}#tipSpot.on::after{animation:none}}
@@ -67,7 +67,7 @@ window.Tips = (() => {
 
   // timing, in ms: full-brightness look before the first tip and between
   // tips, then the dim + ring fading in before the bubble
-  const FIRST_LOOK = 2000, NEXT_LOOK = 1200, DIM = 450;
+  const FIRST_LOOK = 1200, NEXT_LOOK = 350, DIM = 250;
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function run(screen, steps, {force = false} = {}){
