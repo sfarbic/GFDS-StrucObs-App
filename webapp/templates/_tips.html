@@ -15,11 +15,23 @@
    a big change. Tips.reset() (App settings → Show tips again) turns them
    back on for every screen; Tips.off() turns them off. #}
 <style>
-#tipSpot{position:fixed;z-index:1000;border-radius:12px;pointer-events:none;
-  box-shadow:0 0 0 3px #fff,0 0 0 9999px rgba(10,14,18,.55);transition:all .18s ease}
+/* each tip: the screen at full brightness, then a red ring round the control
+   as the rest dims, then the bubble; Next reverses it before the next one */
+#tipSpot{position:fixed;z-index:1000;border-radius:14px;pointer-events:none;opacity:0;
+  box-shadow:0 0 0 3px #fff,0 0 0 6px var(--brand,#ad2112),0 0 0 9999px rgba(10,14,18,.55);
+  transition:opacity .45s ease}
+#tipSpot.on{opacity:1}
+#tipSpot::after{content:"";position:absolute;inset:-6px;border-radius:inherit;
+  border:3px solid var(--brand,#ad2112);opacity:0}
+#tipSpot.on::after{animation:tipPulse 1.6s ease-out .4s infinite}
+@keyframes tipPulse{0%{transform:scale(1);opacity:.85}100%{transform:scale(1.15);opacity:0}}
 #tipBox{position:fixed;z-index:1001;width:min(320px,calc(100vw - 24px));background:var(--card,#fff);
   color:var(--fg,#14181d);border:1px solid var(--line,#e4e7ec);border-radius:12px;padding:12px 14px;
-  box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:14.5px;line-height:1.45}
+  box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:14.5px;line-height:1.45;
+  opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .25s ease,transform .25s ease}
+#tipBox.on{opacity:1;transform:none;pointer-events:auto}
+@media (prefers-reduced-motion:reduce){
+  #tipSpot,#tipBox{transition:none}#tipSpot.on::after{animation:none}}
 #tipBox .tp-n{font-size:11.5px;color:var(--mut,#667085);margin-bottom:3px}
 #tipBox .tp-row{display:flex;gap:8px;margin-top:10px}
 #tipBox .tp-row button{flex:1;padding:9px;border-radius:9px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
@@ -53,6 +65,11 @@ window.Tips = (() => {
   const mark = screen => { try{ localStorage.setItem(key(screen), new Date().toISOString()); }catch(e){} };
   const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
 
+  // timing, in ms: full-brightness look before the first tip and between
+  // tips, then the dim + ring fading in before the bubble
+  const FIRST_LOOK = 2000, NEXT_LOOK = 1200, DIM = 450;
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   function run(screen, steps, {force = false} = {}){
     if (!force && (choice() !== "on" || seen(screen))) return;
     if (document.querySelector('dialog[open]')) return;      // never over a dialog
@@ -62,33 +79,57 @@ window.Tips = (() => {
     const box = document.createElement("div"); box.id = "tipBox";
     box.setAttribute("role", "dialog"); box.setAttribute("aria-live", "polite");
     document.body.append(spot, box);
-    let i = 0;
-    const done = () => { mark(screen); spot.remove(); box.remove();
-      removeEventListener("resize", place); removeEventListener("scroll", place, true); };
+    let i = 0, timer = null, over = false;
+    // the looks are pauses, not motion, so they hold even with reduced motion
+    const wait = ms => new Promise(r => { timer = setTimeout(r, ms); });
 
     function place(){
-      const r = list[i].el.getBoundingClientRect(), pad = 6;
+      const el = list[i].el, r = el.getBoundingClientRect(), pad = 6;
       Object.assign(spot.style, {left: r.left - pad + "px", top: r.top - pad + "px",
         width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px"});
+      // a round control gets a round ring
+      const radius = getComputedStyle(el).borderRadius;
+      spot.style.borderRadius = radius.includes("50%") ? "50%" : (parseFloat(radius) || 8) + pad + "px";
       const bh = box.offsetHeight, vh = innerHeight, vw = innerWidth;
       // below the control when there is room, else above it
-      let top = r.bottom + 14;
-      if (top + bh > vh - 8) top = Math.max(8, r.top - bh - 14);
+      let top = r.bottom + 16;
+      if (top + bh > vh - 8) top = Math.max(8, r.top - bh - 16);
       const left = Math.min(Math.max(12, r.left + r.width / 2 - box.offsetWidth / 2), vw - box.offsetWidth - 12);
       Object.assign(box.style, {top: top + "px", left: left + "px"});
     }
-    function show(){
+
+    /* one tip: bring the control into view at full brightness, wait, ring it
+       and dim the rest, then show the bubble */
+    async function step(look){
       const s = list[i], last = i === list.length - 1;
+      s.el.scrollIntoView({block: "center", behavior: calm ? "auto" : "smooth"});
+      await wait(look); if (over) return;
       box.innerHTML = `<div class="tp-n">Tip ${i + 1} of ${list.length}</div><div>${s.text}</div>
         <div class="tp-row"><button class="tp-skip">${last ? "Close" : "Skip tips"}</button>
         <button class="tp-next">${last ? "Got it" : "Next"}</button></div>`;
-      box.querySelector('.tp-skip').onclick = done;
-      box.querySelector('.tp-next').onclick = () => { if (last) return done(); i++; show(); };
-      s.el.scrollIntoView({block: "center", behavior: "instant"});
+      box.querySelector('.tp-skip').onclick = finish;
+      box.querySelector('.tp-next').onclick = () => last ? finish() : advance();
       place();
+      spot.classList.add("on");
+      await wait(DIM); if (over) return;
+      place();
+      box.classList.add("on");
+      box.querySelector('.tp-next').focus({preventScroll: true});
+    }
+    /* Next: bubble out, screen back to full brightness, then the next tip */
+    async function advance(){
+      box.classList.remove("on"); spot.classList.remove("on");
+      await wait(DIM); if (over) return;
+      i++; step(NEXT_LOOK);
+    }
+    function finish(){
+      over = true; clearTimeout(timer); mark(screen);
+      box.classList.remove("on"); spot.classList.remove("on");
+      removeEventListener("resize", place); removeEventListener("scroll", place, true);
+      setTimeout(() => { spot.remove(); box.remove(); }, calm ? 0 : DIM);
     }
     addEventListener("resize", place); addEventListener("scroll", place, true);
-    show();
+    step(FIRST_LOOK);
   }
 
   /* the first time the app opens here: ask, before any tip shows. true when
