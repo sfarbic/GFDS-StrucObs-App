@@ -87,7 +87,7 @@ function render(){
   const j = page.job;
   $('sub').textContent = `${j.number ? j.number + " · " : ""}${j.name}`;
   if (!page.visits.length){
-    $('visits').innerHTML = `<div class="empty">Create a site visit before generating a report.<br>
+    $('visits').innerHTML = `<div class="empty">Nothing to report yet. Start a site visit first.<br>
       <a href="/projects/${JID}/visits/new">+ New site visit</a></div>`;
     return;
   }
@@ -180,6 +180,12 @@ $('btnOpen').onclick = () => {
   location.href = `/api/jobs/${JID}/open-items.docx`;
 };
 
-api(`/api/jobs/${JID}`).then(p => { page = p; render(); renderOpen(); }).catch(e => status(e.message, "bad"));
+api(`/api/jobs/${JID}`).then(p => { page = p; render(); renderOpen();
+  Tips.run("report", [
+    {at: '#visits', text: "Pick the site visit to report on."},
+    {at: '#btnGo', text: "Downloads a zip with the Word report, the photos and the marked-up plans."},
+    {at: '#btnOpen', text: "A separate list of everything still open, for the contractor."},
+  ]);
+}).catch(e => status(e.message, "bad"));
 </script>
 {% endblock %}

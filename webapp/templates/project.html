@@ -89,7 +89,7 @@ function renderInfo(){
 const openIn = v => page.action_items.filter(a => a.pid === v.project_id && a.include && !a.closed_visit_no).length;
 function renderVisits(){
   if (!page.visits.length){
-    $('visits').innerHTML = `<div class="hint" style="text-align:center;margin-top:10px">No site visits yet.</div>`;
+    $('visits').innerHTML = `<div class="hint" style="text-align:center;margin-top:10px">No site visits yet. Tap <b>+ New site visit</b> when you go to site.</div>`;
     return;
   }
   $('visits').innerHTML = page.visits.map(v => {
@@ -136,7 +136,7 @@ function renderPlans(plans){
     <div class="plan"><a class="nm" href="${p.url}" target="_blank">${esc(p.name)}</a>
       <span class="meta">${p.pages} sheet${p.pages===1?"":"s"}</span>
       <button data-id="${p.plan_id}" title="Remove plan">&times;</button></div>`).join("")
-    : `<div class="hint">No plans yet.</div>`;
+    : `<div class="hint">No plans yet. Add them to pin each photo's location on the drawings.</div>`;
   $('planList').querySelectorAll('button').forEach(b => b.onclick = async () => {
     const p = plans.find(x => x.plan_id === b.dataset.id);
     if (!confirm(`Remove “${p.name}” from the project?
@@ -180,6 +180,11 @@ $('btnDelete').onclick = async () => {
   try{ await api(`/api/jobs/${JID}`, {method:"DELETE"}); location.href = "/projects"; }
   catch(err){ say(err.message,"bad"); }
 };
-load().catch(e => say(e.message,"bad"));
+load().then(() => Tips.run("project", [
+  {at: '#btnNewVisit', text: "Start a new site visit each time you go to site. The visit number counts up automatically."},
+  {at: '#visits .visit', text: "Tap a visit to add or edit its items."},
+  {at: '#btnActions', text: "Every action item not yet closed out, from all visits. Add updates or close them out here."},
+  {at: '#btnReport', text: "Build the Word report for a site visit, or a list of open action items."},
+])).catch(e => say(e.message,"bad"));
 </script>
 {% endblock %}

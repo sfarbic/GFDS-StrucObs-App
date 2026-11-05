@@ -23,7 +23,7 @@ function render(){
   $('count').textContent = terms.length
     ? `${shown.length} of ${jobs.length} projects` : `${jobs.length} project${jobs.length===1?"":"s"} · by number`;
   if (!jobs.length){
-    $('list').innerHTML = `<div class="empty">No projects yet.<br><a href="/projects/new">Create the first one</a>.</div>`;
+    $('list').innerHTML = `<div class="empty">No projects yet. Tap <a href="/projects/new"><b>+ New</b></a> to set one up with its name, number and plans.</div>`;
     return;
   }
   if (!shown.length){ $('list').innerHTML = `<div class="empty">No project matches.</div>`; return; }

@@ -96,6 +96,10 @@ if (PID) $('btnDeleteVisit').onclick = async () => {
     $('visitNo').value = page.next_visit_no; $('visitDate').value = today();
     $('observedBy').value = page.observed_by;
   }
-})().catch(e => say(e.message,"bad"));
+})().then(() => { if (!PID) Tips.run("visit", [
+  {at: '#visitNo', text: "Filled in for you. Change it if you need to."},
+  {at: '#observedBy', text: "Who was on site: By, and Others Present below. This prints in the report header."},
+  {at: '#btnGo', text: "Saves these details and takes you to the items for this visit."},
+]); }).catch(e => say(e.message,"bad"));
 </script>
 {% endblock %}

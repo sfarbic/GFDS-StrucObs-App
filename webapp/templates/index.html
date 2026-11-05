@@ -187,6 +187,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
 {% include "_dictate.html" %}
 {% include "_photos.html" %}
+{% include "_tips.html" %}
 {% include "_actions.html" %}
 
 <script type="module">
@@ -330,6 +331,7 @@ const shots = e => (e.images || []).map(im => ({url: im.url, thumb: im.thumb_url
 function renderPhotoBox(){
   const c = cur();
   Photos.box($('thumb'), c ? shots(c.e) : [], {
+    label: c ? "Add photo" : "Tap to take the first photo",
     onCamera: () => addFrom("camera"),
     onLibrary: () => addFrom("library"),
     onOpen: at => Photos.open(photoStore(cur()), at),
@@ -418,7 +420,7 @@ const rememberSheet = v => { try{ localStorage.setItem(sheetKey(), v); }catch(e)
 $('toolLoc').onclick = () => openPlan();
 async function openPlan({after = false} = {}){
   if (!plans.length)
-    return say("No plans yet — add them on the project page: Edit → Plans.","bad");
+    return say("This project has no plans yet. Add them under Edit project info on the project page.","bad");
   /* one choice per sheet: "S1.0 — Martis Camp Structure" by its sheet number,
      else "Martis Camp Structure — sheet 7" (its number as uploaded) */
   const setName = p => String(p.name || "").replace(/\.(pdf|png|jpe?g)$/i, "").replace(/^\d{6}[\s_-]+/, "");
@@ -604,7 +606,12 @@ $('btnFinish').onclick = async () => {
   location.href = job ? `/projects/${job.job_id}` : "/";
 };
 
-load().catch(e => say(e.message,"bad"));
+load().then(() => Tips.run("items", [
+  {at: '#thumb', text: "Tap to take a photo, or choose one from your library. Tap the photo later to add more, retake or delete."},
+  {at: '#toolLoc', text: "Place this item on the plan. After the first photo, this opens by itself."},
+  {at: '#desc', text: "Type, or tap the mic and speak. Add an Action below if the contractor needs to do something; that makes it an action item."},
+  {at: '#next', text: "Go to the next item. On the last item, it starts a new one."},
+])).catch(e => say(e.message,"bad"));
 </script>
 </body>
 </html>

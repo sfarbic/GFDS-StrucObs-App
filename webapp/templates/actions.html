@@ -38,7 +38,7 @@ function render(){
   const shown = all.filter(a => showClosed || !a.closed_visit_no);
   if (!shown.length){
     $('actions').innerHTML = `<div class="empty">${all.length ? "Every action item is closed out."
-      : "No action items yet. Items with an Action appear here."}</div>`;
+      : "No action items yet. Any item with an <b>Action</b> shows up here so you can track it until it's closed out."}</div>`;
     return;
   }
   $('actions').innerHTML = shown.map((a, i) => `

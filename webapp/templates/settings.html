@@ -12,6 +12,15 @@
 </div>
 
 <div class="sec">
+  <h2>Tips</h2>
+  <div class="card">
+    <button class="ghost wide" id="tipsAgain">Show tips again</button>
+    <div class="hint">Each screen's first-time tips show once on this phone or computer.
+      This brings them all back.</div>
+  </div>
+</div>
+
+<div class="sec">
   <h2>Default report template</h2>
   <div class="card">
     <div class="tpl" id="tplInfo">Loading…</div>
@@ -56,5 +65,6 @@ $('tplRemove').onclick = async () => {
   catch(err){ say(err.message,"bad"); }
 };
 api('/api/template').then(r => renderTemplate(r.template)).catch(e => say(e.message,"bad"));
+$('tipsAgain').onclick = () => { Tips.reset(); say("Tips are back on. They'll show on each screen the next time you open it.","ok"); };
 </script>
 {% endblock %}

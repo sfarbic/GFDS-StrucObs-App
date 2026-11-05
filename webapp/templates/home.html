@@ -24,3 +24,12 @@ h1{margin:0;font-size:30px;letter-spacing:-.025em}h1 span{color:var(--brand)}
 <a class="btn ghost choice" href="/projects"><b>Existing project</b>
   <span>Find a project by number, name or address</span></a>
 {% endblock %}
+{% block script %}
+<script>
+Tips.run("home", [
+  {at: 'a.choice[href="/projects/new"]', text: "Start here: enter the project name, number and address, and upload its plans."},
+  {at: 'a.choice[href="/projects"]', text: "Find a project you've already set up, by number, name or address."},
+  {at: '.gear', text: "App settings."},
+]);
+</script>
+{% endblock %}

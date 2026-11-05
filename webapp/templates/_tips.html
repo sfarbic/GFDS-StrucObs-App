@@ -1,0 +1,75 @@
+{# First-time tips: a few bubbles pointing at a screen's main controls, one
+   at a time, shown once per phone or computer.
+     Tips.run("project", [{at: "#btnNewVisit", text: "..."}, ...])
+   shows a screen's tips unless this browser has already seen them; steps
+   whose control is missing or hidden are skipped. The note that they were
+   seen lives in this browser's storage (localStorage), never on the server,
+   so updating the app does not bring them back; bump VERSION[screen] to
+   show one screen's tips once more after a big change. Tips.reset() (App
+   settings → Show tips again) brings them all back. #}
+<style>
+#tipSpot{position:fixed;z-index:1000;border-radius:12px;pointer-events:none;
+  box-shadow:0 0 0 3px #fff,0 0 0 9999px rgba(10,14,18,.55);transition:all .18s ease}
+#tipBox{position:fixed;z-index:1001;width:min(320px,calc(100vw - 24px));background:var(--card,#fff);
+  color:var(--fg,#14181d);border:1px solid var(--line,#e4e7ec);border-radius:12px;padding:12px 14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:14.5px;line-height:1.45}
+#tipBox .tp-n{font-size:11.5px;color:var(--mut,#667085);margin-bottom:3px}
+#tipBox .tp-row{display:flex;gap:8px;margin-top:10px}
+#tipBox .tp-row button{flex:1;padding:9px;border-radius:9px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+#tipBox .tp-skip{background:transparent;color:var(--mut,#667085);border:1px solid var(--line,#e4e7ec)}
+#tipBox .tp-next{background:var(--accent,#2b3036);color:var(--accent-fg,#fff);border:0}
+</style>
+<script>
+window.Tips = (() => {
+  const PREFIX = "gfdsTips:";
+  const VERSION = {};                      // e.g. {items: 2} to show the items tips again
+  const key = screen => `${PREFIX}${screen}:v${VERSION[screen] || 1}`;
+  const seen = screen => { try{ return !!localStorage.getItem(key(screen)); }catch(e){ return true; } };
+  const mark = screen => { try{ localStorage.setItem(key(screen), new Date().toISOString()); }catch(e){} };
+  const visible = el => el && el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
+
+  function run(screen, steps, {force = false} = {}){
+    if (!force && seen(screen)) return;
+    if (document.querySelector('dialog[open]')) return;      // never over a dialog
+    const list = steps.map(s => ({...s, el: document.querySelector(s.at)})).filter(s => visible(s.el));
+    if (!list.length) return;
+    const spot = document.createElement("div"); spot.id = "tipSpot";
+    const box = document.createElement("div"); box.id = "tipBox";
+    box.setAttribute("role", "dialog"); box.setAttribute("aria-live", "polite");
+    document.body.append(spot, box);
+    let i = 0;
+    const done = () => { mark(screen); spot.remove(); box.remove();
+      removeEventListener("resize", place); removeEventListener("scroll", place, true); };
+
+    function place(){
+      const r = list[i].el.getBoundingClientRect(), pad = 6;
+      Object.assign(spot.style, {left: r.left - pad + "px", top: r.top - pad + "px",
+        width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px"});
+      const bh = box.offsetHeight, vh = innerHeight, vw = innerWidth;
+      // below the control when there is room, else above it
+      let top = r.bottom + 14;
+      if (top + bh > vh - 8) top = Math.max(8, r.top - bh - 14);
+      const left = Math.min(Math.max(12, r.left + r.width / 2 - box.offsetWidth / 2), vw - box.offsetWidth - 12);
+      Object.assign(box.style, {top: top + "px", left: left + "px"});
+    }
+    function show(){
+      const s = list[i], last = i === list.length - 1;
+      box.innerHTML = `<div class="tp-n">Tip ${i + 1} of ${list.length}</div><div>${s.text}</div>
+        <div class="tp-row"><button class="tp-skip">${last ? "Close" : "Skip tips"}</button>
+        <button class="tp-next">${last ? "Got it" : "Next"}</button></div>`;
+      box.querySelector('.tp-skip').onclick = done;
+      box.querySelector('.tp-next').onclick = () => { if (last) return done(); i++; show(); };
+      s.el.scrollIntoView({block: "center", behavior: "instant"});
+      place();
+    }
+    addEventListener("resize", place); addEventListener("scroll", place, true);
+    show();
+  }
+
+  function reset(){
+    try{ Object.keys(localStorage).filter(k => k.startsWith(PREFIX)).forEach(k => localStorage.removeItem(k)); }
+    catch(e){}
+  }
+  return {run, reset};
+})();
+</script>

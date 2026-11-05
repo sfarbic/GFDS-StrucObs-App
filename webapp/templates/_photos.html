@@ -83,12 +83,12 @@ window.Photos = (() => {
     inp.click();
   }
 
-  function box(el, photos, {onCamera, onLibrary, onOpen}){
+  function box(el, photos, {onCamera, onLibrary, onOpen, label = "Add photo"}){
     el.classList.add('pbox');
     el.innerHTML = photos.length
       ? `<img src="${photos[0].thumb || photos[0].url}" alt="">
          ${photos.length > 1 ? `<span class="pb-badge">1/${photos.length}</span>` : ""}`
-      : `<span class="pb-add">${CAMERA}Add photo<span class="pb-lib">or choose from library</span></span>`;
+      : `<span class="pb-add">${CAMERA}${label}<span class="pb-lib">or choose from library</span></span>`;
     el.onclick = ev => {
       if (!photos.length) return ev.target.closest('.pb-lib') ? onLibrary() : onCamera();
       onOpen(0);
