@@ -42,6 +42,19 @@
 .rc-bd .lbl{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
   font-weight:600;margin:0 0 8px}
 .rc .pick{background:var(--bg)}
+/* both cards fit on one screen: fit() (below) caps the site visit list's
+   height and the list scrolls inside its card */
+#visits{overflow-y:auto;overscroll-behavior:contain;margin:0 -4px 12px;padding:2px 4px}
+#visits .pick{padding:10px 12px;margin-bottom:8px}
+#visits .pick:last-child{margin-bottom:0}
+/* short phones: drop the explanatory lines so both cards still fit */
+@media (max-height:740px){
+  .rc .hint,.rc-hd small{display:none}
+  .rc{margin-top:12px}.rc-hd{padding:10px 14px}.rc-bd{padding:12px 14px}
+  .rc-ic{width:32px;height:32px}.rc-ic svg{width:18px;height:18px}
+  #openInfo{font-size:12.5px}}
+#visits.more{mask-image:linear-gradient(#000 calc(100% - 28px),transparent);
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
 /* both cards wear the GFDS red header */
 .rc{border-color:color-mix(in srgb,var(--brand) 30%,var(--line))}
 .rc .rc-hd{background:color-mix(in srgb,var(--brand) 9%,var(--card));
@@ -162,7 +175,7 @@ function showStep2(){
 }
 $('btnBack').onclick = () => {
   $('title').textContent = "Generate report";
-  $('step2').hidden = true; $('step1').hidden = false; status("");
+  $('step2').hidden = true; $('step1').hidden = false; status(""); fit();
 };
 
 function choices(){
@@ -193,6 +206,19 @@ async function build(photos, btn){
   finally{ btn.disabled = false; btn.textContent = label; }
 }
 
+/* cap the two cards at the screen height, leaving room for the status line
+   under them; on a very short screen the list keeps its minimum and the page scrolls */
+function fit(){
+  if ($('step1').hidden) return;
+  const v = $('visits'); v.style.maxHeight = "none";
+  // how far the bottom card runs past the screen (less room for the status line)
+  const over = $('rcOpen').getBoundingClientRect().bottom + scrollY - (innerHeight - 44);
+  if (over > 0) v.style.maxHeight = Math.max(120, v.offsetHeight - over) + "px";
+  v.classList.toggle("more", v.scrollHeight - v.scrollTop - v.clientHeight > 4);
+}
+addEventListener("resize", fit);
+$('visits').addEventListener("scroll", fit, {passive: true});
+
 const openItems = () => page.action_items.filter(a => a.include && !a.closed_visit_no);
 function renderOpen(){
   const items = openItems(), n = items.length;
@@ -208,7 +234,7 @@ $('btnOpen').onclick = () => {
   location.href = `/api/jobs/${JID}/open-items.docx`;
 };
 
-api(`/api/jobs/${JID}`).then(p => { page = p; render(); renderOpen();
+api(`/api/jobs/${JID}`).then(p => { page = p; render(); renderOpen(); fit();
   Tips.run("report", [
     {at: '#visits', text: "Pick the site visit to report on."},
     {at: '#btnGo', text: "Downloads a zip with the Word report, the photos and the marked-up plans."},
