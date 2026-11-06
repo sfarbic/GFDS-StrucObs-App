@@ -6,12 +6,16 @@
 .ai .hd{font-size:14px}
 .ai .act{font-size:13.5px;margin-top:4px}
 .ai .act b{color:var(--mut);font-weight:600}
+.top .rep{flex:0 0 auto;padding:8px 14px;border-radius:10px;border:0;font:inherit;font-size:15px;
+  font-weight:600;line-height:1.2;background:var(--accent);color:var(--accent-fg,#fff);cursor:pointer;text-align:center}
+.top .rep:disabled{opacity:.45;cursor:default}
 .toggle{background:none;border:0;color:var(--accent);padding:0;font-size:13px;font-weight:600;cursor:pointer}
 {% endblock %}
 {% block content %}
 <div class="top">
   <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
   <div class="t"><b id="title">Open action items</b><small id="sub">&nbsp;</small></div>
+  <button class="rep" id="btnReport" disabled title="Download a Word report of every open action item">Generate<br>report</button>
 </div>
 <div class="sec">
   <div style="text-align:right;margin-bottom:8px"><button class="toggle" id="showClosed" hidden></button></div>
@@ -33,6 +37,7 @@ function render(){
     .sort((x, y) => x.visit_no - y.visit_no || (x.number || 0) - (y.number || 0));
   const open = all.filter(a => !a.closed_visit_no).length, closed = all.length - open;
   $('sub').textContent = `${page.job.number ? page.job.number + " · " : ""}${page.job.name} · ${open} open`;
+  $('btnReport').disabled = !open;
   $('showClosed').hidden = !closed;
   $('showClosed').textContent = showClosed ? "Hide closed items" : `Show ${closed} closed item${closed===1?"":"s"}`;
   const shown = all.filter(a => showClosed || !a.closed_visit_no);
@@ -52,11 +57,17 @@ function render(){
 }
 
 async function load(){ page = await api(`/api/jobs/${JID}`); render(); }
+// the same Word report as Generate reports → open items report
+$('btnReport').onclick = () => {
+  say("Downloading the open action items report…", "ok");
+  location.href = `/api/jobs/${JID}/open-items.docx`;
+};
 $('showClosed').onclick = () => { showClosed = !showClosed; render(); };
 load().then(() => Tips.run("actions", [
   {at: '#actions .ai', text: "Every action item still open, from all site visits, with the visit it came from."},
   {at: '#actions .ai .add', text: "Record progress: what was done and when, with photos if you have them. It prints in that visit's report."},
   {at: '#actions .ai .close', text: "When the work is done, close it out. The report notes \"No further action required.\""},
+  {at: '#btnReport', text: "Download a Word report of every open action item, to send to the contractor."},
   {at: '#showClosed', text: "Closed items are hidden. Tap here to see them, or to reopen one."},
 ])).catch(e => say(e.message,"bad"));
 </script>
