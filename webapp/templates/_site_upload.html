@@ -1,0 +1,40 @@
+{# Site photo uploads, shared by the project page (+ Site photos on each
+   visit) and the Site visit info page:
+     SiteUpload.send(pid, files, (i, n) => progress) -> {added, dupes, failed, stop}
+   sends the photos one after another, so a big batch never meets the upload
+   limit and one bad photo does not stop the rest. `stop` is the server's
+   message when it is full; the rest of the batch is then not sent.
+     SiteUpload.summary(r) -> "6 photos added · 1 already added, skipped." #}
+<script>
+window.SiteUpload = (() => {
+  async function send(pid, files, progress = () => {}){
+    let added = 0, dupes = 0, failed = 0, stop = "";
+    for (const [i, f] of files.entries()){
+      progress(i + 1, files.length);
+      const fd = new FormData(); fd.append("photo", f); fd.append("modified", f.lastModified || "");
+      try{
+        const res = await fetch(`/api/visits/${pid}/site-photos`, {method: "POST", body: fd});
+        if (res.status === 401){ location.href = "/login"; throw new Error("unauthorized"); }
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 507){ stop = body.error; failed += files.length - i; break; }
+        if (!res.ok) throw new Error(body.error || res.statusText);
+        if (body.duplicate) dupes++; else added++;
+      }catch(err){ failed++; }
+    }
+    return {added, dupes, failed, stop};
+  }
+  function summary(r){
+    if (r.stop) return r.stop;
+    const parts = [`${r.added} site photo${r.added === 1 ? "" : "s"} added`];
+    if (r.dupes) parts.push(`${r.dupes} already added, skipped`);
+    if (r.failed) parts.push(`${r.failed} not saved`);
+    return parts.join(" · ") + ".";
+  }
+  const bar = (i, n) => `Uploading ${i} of ${n}…<div class="su-bar"><i style="width:${Math.round(i / n * 100)}%"></i></div>`;
+  return {send, summary, bar};
+})();
+</script>
+<style>
+.su-bar{height:6px;border-radius:99px;background:var(--card2);overflow:hidden;margin-top:6px}
+.su-bar i{display:block;height:100%;background:var(--ok);width:0;transition:width .2s}
+</style>

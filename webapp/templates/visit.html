@@ -1,5 +1,16 @@
 {% extends "_base.html" %}
 {% block title %}Site visit — GFDS Observation App{% endblock %}
+{% block style %}
+/* site photos: a grid of thumbnails, newest batch at the end */
+.sp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;margin:10px 0 12px}
+.sp-grid button{position:relative;aspect-ratio:1;padding:0;border:1px solid var(--line);border-radius:8px;
+  overflow:hidden;background:var(--card2);cursor:pointer}
+.sp-grid img{width:100%;height:100%;object-fit:cover;display:block}
+.sp-grid .more{display:grid;place-items:center;font-size:13px;font-weight:700;color:var(--mut)}
+#spInfo b{font-weight:650}
+#spProg{min-height:18px}
+.sp-btns{display:grid;gap:8px;margin-top:4px}
+{% endblock %}
 {% block content %}
 <div class="top">
   <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
@@ -35,6 +46,28 @@
   {% endif %}
   </div>
 </section>
+{% if pid %}
+<section class="rc" id="rcSite">
+  <div class="rc-hd"><div><b>Site photos</b><small>Photos for the project folder. They are not
+    in the report.</small></div></div>
+  <div class="rc-bd">
+    <div id="spInfo" class="meta">Loading…</div>
+    <div class="sp-grid" id="spGrid"></div>
+    <div id="spProg" class="hint"></div>
+    <div class="sp-btns">
+      <button class="wide" id="spAdd">+ Add site photos</button>
+      <button class="ghost wide" id="spDown" hidden>Download site photos</button>
+      <button class="ghost wide" id="spAgain" hidden>Download again</button>
+    </div>
+    <div class="hint">Pick any number from your photo library; they upload at full size. On an
+      iPhone, if the picker offers a size, choose <b>Actual Size</b>.</div>
+    <div class="hint">Download gives a zip of the photos as taken, then removes them from the app.
+      They also go in the report zip when you generate the report.</div>
+  </div>
+</section>
+{% include "_photos.html" %}
+{% include "_site_upload.html" %}
+{% endif %}
 {% endblock %}
 {% block script %}
 <script>
@@ -84,7 +117,98 @@ if (PID) $('btnDeleteVisit').onclick = async () => {
   catch(err){ say(err.message,"bad"); }
 };
 
+/* ---------------- site photos ---------------- */
+let site = [], siteSum = null, siteVno = null, watch = null;
+const MB = n => n < 1048576 ? Math.max(1, Math.round(n / 1024)) + " KB"
+  : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+const GRID_MAX = 24;
+
+async function loadSite(){
+  const r = await api(`/api/visits/${PID}/site-photos`);
+  site = r.photos; siteSum = r.summary; siteVno = r.visit_no;
+  renderSite();
+  return r;
+}
+function renderSite(){
+  const n = site.length, s = siteSum || {}, dl = s.downloaded;
+  const done = dl ? `${dl.count} photo${dl.count===1?"":"s"} downloaded ${shortDate((dl.at||"").slice(0,10))} and removed from the app.` : "";
+  $('spInfo').innerHTML = n
+    ? `<b>${n} photo${n===1?"":"s"}</b> · ${MB(s.bytes || 0)} waiting to be downloaded${done ? `<br>${done}` : ""}`
+    : (done || "No site photos yet.");
+  const shown = site.slice(0, n > GRID_MAX ? GRID_MAX - 1 : GRID_MAX);
+  $('spGrid').innerHTML = shown.map((p, i) =>
+      `<button data-i="${i}" aria-label="Site photo ${i + 1}"><img src="${p.thumb_url || p.url}" alt="" loading="lazy"></button>`).join("")
+    + (n > shown.length ? `<button class="more" data-i="${shown.length}">+${n - shown.length}</button>` : "");
+  $('spGrid').hidden = !n;
+  $('spGrid').querySelectorAll('button').forEach(b => b.onclick = () => Photos.open(siteStore(), +b.dataset.i));
+  $('spDown').hidden = !n;
+  $('spDown').textContent = n ? `Download site photos (${n})` : "Download site photos";
+  const z = s.zip;
+  $('spAgain').hidden = !z || n > 0;
+  if (z) $('spAgain').textContent = `Download again (${z.count} photo${z.count===1?"":"s"}, until ${shortDate((z.expires||"").slice(0,10))})`;
+}
+
+/* the photo screen for site photos: Make this an item, or Delete */
+function siteStore(){
+  return {
+    title: (i, n) => `Site photo ${i + 1} of ${n}`,
+    list: () => site.map(p => ({url: p.url})),
+    remove: async i => {
+      const r = await api(`/api/visits/${PID}/site-photos/${site[i].site_id}`, {method:"DELETE"});
+      site.splice(i, 1); siteSum = r.summary; renderSite();
+    },
+    extra: [{label: "Make this an item", busy: "Making a new item…", run: async i => {
+      const r = await api(`/api/visits/${PID}/site-photos/${site[i].site_id}/item`, {method:"POST"});
+      await api(`/api/projects/${PID}/open`, {method:"POST"});
+      location.href = `/capture?photo=${encodeURIComponent(r.entry.photo_id)}`;
+    }}],
+  };
+}
+
+function addSite(){
+  Photos.pick("library", async files => {
+    $('spAdd').disabled = true;
+    const r = await SiteUpload.send(PID, files, (i, n) => { $('spProg').innerHTML = SiteUpload.bar(i, n); });
+    $('spAdd').disabled = false;
+    await loadSite().catch(() => {});
+    $('spProg').textContent = "";
+    say(SiteUpload.summary(r), r.stop || r.failed ? "bad" : "ok");
+  });
+}
+
+/* build the zip, then download it by plain navigation (works the same in
+   every phone browser); the photos leave the app once it has all gone out */
+async function downloadSite(again){
+  const btn = again ? $('spAgain') : $('spDown');
+  btn.disabled = true;
+  try{
+    let url = `/api/visits/${PID}/site-photos/download`;
+    if (!again){
+      say("Preparing the zip…","warn");
+      const b = await api(`/api/visits/${PID}/site-photos/build`, {method:"POST"});
+      url = b.url;
+      say(`Downloading ${b.count} photo${b.count===1?"":"s"} (${MB(b.bytes)}). They leave the app once the download finishes.`,"ok");
+    }
+    location.href = url;
+    // watch for the photos leaving the app, for up to two minutes
+    clearInterval(watch);
+    let tries = 0;
+    watch = setInterval(async () => {
+      tries++;
+      const r = await loadSite().catch(() => null);
+      if (!r || !r.photos.length || tries > 40) clearInterval(watch);
+    }, 3000);
+  }catch(err){ say(err.message,"bad"); }
+  finally{ btn.disabled = false; }
+}
+if (PID){
+  $('spAdd').onclick = addSite;
+  $('spDown').onclick = () => downloadSite(false);
+  $('spAgain').onclick = () => downloadSite(true);
+}
+
 (async () => {
+  if (PID) loadSite().catch(e => say(e.message,"bad"));
   const page = await api(`/api/jobs/${JID}`);
   visits = page.visits;
   const j = page.job;
@@ -103,6 +227,12 @@ if (PID) $('btnDeleteVisit').onclick = async () => {
   {at: '#visitNo', text: "Filled in for you. Change it if you need to."},
   {at: '#observedBy', text: "Who was on site: By, and Others Present below. This prints in the report header."},
   {at: '#btnGo', text: "Saves these details and takes you to the items for this visit."},
-]); }).catch(e => say(e.message,"bad"));
+]); else {
+  if (location.hash === "#site") $('rcSite').scrollIntoView({block: "start"});
+  Tips.run("sitephotos", [
+    {at: '#spAdd', text: "Add the documentation photos you took with your phone's camera: pick them all at once from your library. They are not in the report."},
+    {at: '#spDown', text: "Downloads them as a zip for the project folder, then removes them from the app to free up space."},
+  ]);
+} }).catch(e => say(e.message,"bad"));
 </script>
 {% endblock %}

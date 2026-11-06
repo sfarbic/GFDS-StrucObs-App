@@ -9,6 +9,9 @@
      {title(i, n), list() -> [{url}], add(files), retake(i, file), remove(i)}
    (add / retake / remove may be async), so the item screen can upload at
    once while the update screen keeps photos on the phone until Save.
+   A store without add or retake hides those buttons, and store.extra =
+   [{label, run(i), cls?, confirm?}] adds buttons of its own (Make this an
+   item, Move to site photos).
 
    Photos.pick("camera" | "library", files => ...) opens the phone's camera
    (one photo) or its photo library (several). On a computer both are the
@@ -40,6 +43,8 @@
 #phDlg .ph-ghost{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
 #phDlg .ph-del{background:transparent;color:var(--bad);border:1px solid var(--line)}
 #phDlg .ph-add{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+#phDlg .ph-extra{background:var(--accent);color:var(--accent-fg);border:0}
+#phDlg .ph-row[hidden],#phDlg .ph-sep[hidden]{display:none}
 #phDlg .ph-sep{border-top:1px solid var(--line);margin:12px 14px 0}
 #phDlg .ph-msg{font-size:12.5px;color:var(--mut);min-height:16px;padding:8px 14px 0;text-align:center}
 #phDlg .ph-done{display:block;width:calc(100% - 28px);margin:10px 14px 14px;background:var(--accent);
@@ -54,12 +59,13 @@
     <button class="ph-nav ph-prev" id="phPrev" aria-label="Previous photo">&#9664;</button>
     <button class="ph-nav ph-next" id="phNext" aria-label="Next photo">&#9654;</button>
   </div>
+  <div class="ph-row" id="phExtra" hidden></div>
   <div class="ph-row">
     <button class="ph-ghost" id="phRetake">Retake</button>
     <button class="ph-del" id="phDelete">Delete</button>
   </div>
-  <div class="ph-sep"></div>
-  <div class="ph-row">
+  <div class="ph-sep" id="phSep"></div>
+  <div class="ph-row" id="phAddRow">
     <button class="ph-add" id="phCam">&#128247; Camera</button>
     <button class="ph-add" id="phLib">&#128444; Library</button>
   </div>
@@ -106,7 +112,25 @@ window.Photos = (() => {
     g('phPrev').hidden = at <= 0;
     g('phNext').hidden = at >= list.length - 1;
   }
-  function open(s, start = 0){ store = s; at = start; note(""); show(); if (!g('phDlg').open) g('phDlg').showModal(); }
+  function open(s, start = 0){
+    store = s; at = start; note("");
+    g('phRetake').hidden = !store.retake;
+    g('phSep').hidden = g('phAddRow').hidden = !store.add;
+    const extra = store.extra || [];
+    g('phExtra').hidden = !extra.length;
+    g('phExtra').innerHTML = "";
+    extra.forEach(x => {
+      const b = document.createElement("button");
+      b.className = x.cls || "ph-extra"; b.textContent = x.label;
+      b.onclick = () => {
+        if (x.confirm && !confirm(x.confirm)) return;
+        run(x.busy || "Working…", () => x.run(at));
+      };
+      g('phExtra').append(b);
+    });
+    show();
+    if (!g('phDlg').open) g('phDlg').showModal();
+  }
   function close(){ if (g('phDlg').open) g('phDlg').close(); }
 
   /* run one change through the store, with the buttons held while it works */

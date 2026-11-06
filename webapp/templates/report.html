@@ -105,6 +105,11 @@ const previousFor = v => page.action_items.filter(a => a.include && a.visit_no <
 const selected = () => page.visits.find(v => v.project_id ===
   (document.querySelector('input[name=visit]:checked') || {}).value);
 
+/* the visit's site photos ride along in the zip, in their own folder */
+function siteNote(v){
+  const n = (v.site_photos || {}).count || 0;
+  return n ? ` · ${n} site photo${n===1?"":"s"} (own folder)` : "";
+}
 function render(){
   const j = page.job;
   $('sub').textContent = `${j.number ? j.number + " · " : ""}${j.name}`;
@@ -119,7 +124,7 @@ function render(){
     return `<label class="pick"><input type="radio" name="visit" value="${v.project_id}" ${i ? "" : "checked"}>
       <div><div class="nm">Site Visit ${v.visit_no} <span class="meta">· ${shortDate(v.visit_date)}</span></div>
         <div class="meta">${v.included} item${v.included===1?"":"s"} in the report ·
-          ${prev} previous action item${prev===1?"":"s"}</div>
+          ${prev} previous action item${prev===1?"":"s"}${siteNote(v)}</div>
         ${empty ? `<div class="warn">Nothing to report yet</div>` : ""}</div></label>`;
   }).join("");
   $('btnGo').disabled = false;
@@ -181,8 +186,10 @@ async function build(photos, btn){
     const r = await api('/api/export/build', {method:"POST", json: {photos}});
     const mb = (r.bytes/1048576).toFixed(1);
     location.href = r.url;
-    if (r.notice) status(`Report ready (${mb} MB), downloading — note: ${r.notice}.`, "warn");
-    else status(`Report ready (${mb} MB), downloading…`, "ok");
+    const sp = r.site_photos ? ` with ${r.site_photos} site photo${r.site_photos===1?"":"s"}; `
+      + `they leave the app once the download finishes` : "";
+    if (r.notice) status(`Report ready (${mb} MB${sp}), downloading — note: ${r.notice}.`, "warn");
+    else status(`Report ready (${mb} MB${sp}), downloading…`, "ok");
   }catch(err){ status("Report failed: " + err.message, "bad"); }
   finally{ btn.disabled = false; btn.textContent = label; }
 }

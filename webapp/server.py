@@ -29,7 +29,7 @@ prints for the last time under Previous Action Items.
 
 from flask import (Flask, render_template, render_template_string, request,
                    jsonify, session, redirect, url_for, send_file,
-                   send_from_directory)
+                   send_from_directory, Response)
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
@@ -45,6 +45,7 @@ import tempfile
 import threading
 import time
 import traceback
+import zipfile
 from pathlib import Path
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -670,6 +671,7 @@ def visit_dict(p):
     out.update({"job_id": p.get("job_id"), "visit_no": _visit_no(p),
                 "visit_date": p.get("visit_date") or ""})
     out.update({k: p.get(k) or "" for k in VISIT_TEXT})
+    out["site_photos"] = site_summary(p["project_id"])
     return out
 
 
@@ -1863,6 +1865,450 @@ def api_image_delete(item_id, photo_id, image_id):
         return jsonify(entry)
 
 
+# ---------------------------------------------------------------- site photos
+#
+# Documentation photos for a visit that are not report items: added in bulk
+# from the phone's library, kept exactly as uploaded (never re-encoded), and
+# downloaded as a zip, on their own or in a "Site photos" folder of the
+# report zip. Once a zip holding them has been fully sent they are removed
+# from the server; the zip itself stays for SITE_ZIP_DAYS so it can be
+# downloaded again, then goes too.
+#
+#   data/<pid>/site_photos.json   {photos: [...], seen: [sha1...],
+#                                  downloaded: {at, count} | null}
+#   uploads/<pid>/site/           the photos and their thumbnails
+
+SITE_ZIP_DAYS = 7
+SITE_DIR = "site"
+
+
+def site_dir(pid):
+    return os.path.join(project_uploads(pid), SITE_DIR)
+
+
+def _site_file(pid):
+    return os.path.join(project_data_dir(pid), "site_photos.json")
+
+
+def site_zip_file(pid):
+    return os.path.join(project_data_dir(pid), "site_photos.zip")
+
+
+def load_site(pid):
+    try:
+        with open(_site_file(pid), encoding="utf-8") as fh:
+            site = json.load(fh)
+        if not isinstance(site, dict):
+            raise ValueError("not an object")
+    except (OSError, ValueError):
+        site = {}
+    site["photos"] = [p for p in site.get("photos") or [] if isinstance(p, dict)]
+    site["seen"] = [s for s in site.get("seen") or [] if isinstance(s, str)]
+    site.setdefault("downloaded", None)
+    return site
+
+
+def save_site(site, pid):
+    path = _site_file(pid)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(site, fh, indent=2)
+    os.replace(tmp, path)
+
+
+def _sorted_site(site):
+    return sorted(site["photos"], key=lambda p: (p.get("taken") or "", p.get("site_id") or ""))
+
+
+def _taken(path, fallback_ms=None):
+    """When the photo was taken: its EXIF time, else the file's time from the
+    phone, else now. "YYYY-MM-DDTHH:MM:SS" in the camera's own clock."""
+    try:
+        from PIL import Image
+        if path.lower().endswith((".heic", ".heif")):
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        with Image.open(path) as im:
+            exif = im.getexif()
+            raw = exif.get_ifd(0x8769).get(36867) or exif.get(306)
+        if raw:
+            return datetime.datetime.strptime(str(raw).strip()[:19],
+                                              "%Y:%m:%d %H:%M:%S").isoformat()
+    except Exception:
+        pass
+    try:
+        if fallback_ms:
+            return _local(int(fallback_ms) / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
+    return _local().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _disk_full(exc):
+    import errno
+    return getattr(exc, "errno", None) in (errno.ENOSPC, getattr(errno, "EDQUOT", -1))
+
+
+FULL_MSG = ("The server is full, so this photo was not saved. Download the site photos "
+            "(that removes them from the server), then add the rest.")
+
+
+def _site_record(pid, site_id, filename, *, taken, sha1, size, original=""):
+    d = site_dir(pid)
+    rec = {"site_id": site_id, "filename": filename, "original": original,
+           "url": f"/uploads/{pid}/{SITE_DIR}/{filename}", "thumb_url": None,
+           "taken": taken, "sha1": sha1, "bytes": size, "added": _now()}
+    thumb = f"{site_id}_thumb.jpg"
+    if _make_thumb(os.path.join(d, filename), os.path.join(d, thumb)):
+        rec["thumb_url"] = f"/uploads/{pid}/{SITE_DIR}/{thumb}"
+    return rec
+
+
+def _next_site_id(site):
+    n = max((_trailing_num(p.get("site_id")) for p in site["photos"]), default=0)
+    n = max(n, site.get("last_n") or 0) + 1
+    site["last_n"] = n
+    return f"S{n:04d}"
+
+
+def _file_sha1(path):
+    import hashlib
+    h = hashlib.sha1()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _remove_site_files(pid, rec):
+    for name in (rec.get("filename"), f"{rec.get('site_id')}_thumb.jpg"):
+        try:
+            os.remove(os.path.join(site_dir(pid), name))
+        except (OSError, TypeError):
+            pass
+
+
+def _purge_old_zips(pid):
+    """Drop a visit's export zips once they are SITE_ZIP_DAYS old."""
+    cutoff = time.time() - SITE_ZIP_DAYS * 86400
+    for path in (site_zip_file(pid), export_file(pid)):
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                if os.path.exists(path + ".json"):
+                    os.remove(path + ".json")
+        except OSError:
+            pass
+
+
+def _zip_meta(path):
+    try:
+        with open(path + ".json", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def site_summary(pid):
+    """What the screens show about a visit's site photos."""
+    site = load_site(pid)
+    out = {"count": len(site["photos"]),
+           "bytes": sum(p.get("bytes") or 0 for p in site["photos"]),
+           "downloaded": site["downloaded"], "zip": None}
+    path = site_zip_file(pid)
+    if os.path.exists(path):
+        meta = _zip_meta(path)
+        out["zip"] = {"name": meta.get("name"), "count": meta.get("count"),
+                      "built": meta.get("built"), "bytes": os.path.getsize(path),
+                      "expires": _iso(os.path.getmtime(path) + SITE_ZIP_DAYS * 86400)}
+    return out
+
+
+def _site_names(visit_no, photos):
+    """(record, name in the zip) in taken order: "SV3 2026-11-06 001.jpg"."""
+    out = []
+    for n, rec in enumerate(photos, 1):
+        ext = os.path.splitext(rec["filename"])[1].lower() or ".jpg"
+        day = (rec.get("taken") or "")[:10] or "photo"
+        out.append((rec, f"SV{visit_no} {day} {n:03d}{ext}"))
+    return out
+
+
+def _add_site_to_zip(zf, pid, visit_no, photos, folder=""):
+    for rec, name in _site_names(visit_no, photos):
+        src = os.path.join(site_dir(pid), rec["filename"])
+        if os.path.exists(src):
+            # photos are already compressed: stored as they are, never re-encoded
+            zf.write(src, f"{folder}{name}", compress_type=zipfile.ZIP_STORED)
+
+
+def _site_removed(pid, ids):
+    """After a zip holding these photos was fully sent: remove them."""
+    with _lock:
+        site = load_site(pid)
+        gone = [p for p in site["photos"] if p["site_id"] in ids]
+        if not gone:
+            return 0
+        for rec in gone:
+            _remove_site_files(pid, rec)
+            site["photos"].remove(rec)
+        now = _now()
+        prev = site.get("downloaded") or {}
+        earlier = (prev.get("count") or 0) if (prev.get("at") or "")[:10] == now[:10] else 0
+        site["downloaded"] = {"at": now, "count": len(gone) + earlier}
+        save_site(site, pid)
+        return len(gone)
+
+
+def _send_then(path, name, after=None):
+    """Send a file as a download; `after` runs only once every byte has gone
+    out. A dropped connection closes the stream early and skips it, so
+    nothing is removed for a download that did not finish."""
+    from urllib.parse import quote
+    size = os.path.getsize(path)
+
+    def stream():
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(256 * 1024), b""):
+                yield chunk
+        if after:
+            try:
+                after()
+            except Exception as exc:
+                print(f"[sitescribe] after-download step failed: {exc!r}", file=sys.stderr)
+
+    resp = Response(stream(), mimetype="application/zip", direct_passthrough=True)
+    resp.headers["Content-Length"] = str(size)
+    plain = name.replace('"', "").replace("\\", "")
+    resp.headers["Content-Disposition"] = (
+        f'attachment; filename="{plain}"' if plain.isascii()
+        else f"attachment; filename*=UTF-8''{quote(name)}")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/visits/<pid>/site-photos")
+@require_pin
+def api_site_photos(pid):
+    with _lock:
+        p = _need_visit(load_index(), pid)
+        _purge_old_zips(pid)
+        site = load_site(pid)
+        made = False
+        for rec in site["photos"]:
+            if not rec.get("thumb_url"):
+                thumb = f"{rec['site_id']}_thumb.jpg"
+                if _make_thumb(os.path.join(site_dir(pid), rec["filename"]),
+                               os.path.join(site_dir(pid), thumb)):
+                    rec["thumb_url"] = f"/uploads/{pid}/{SITE_DIR}/{thumb}"
+                    made = True
+        if made:
+            save_site(site, pid)
+        return jsonify(photos=_sorted_site(site), summary=site_summary(pid),
+                       visit_no=_visit_no(p))
+
+
+@app.route("/api/visits/<pid>/site-photos", methods=["POST"])
+@require_pin
+def api_site_photo_add(pid):
+    """One photo per request (a batch is sent one after another), saved
+    byte for byte. A photo already added, or already downloaded, is skipped."""
+    f = request.files.get("photo")
+    if not f or not f.filename:
+        raise ApiError("no photo uploaded")
+    with _lock:
+        _need_visit(load_index(), pid)
+    d = site_dir(pid)
+    os.makedirs(d, exist_ok=True)
+    tmp = os.path.join(d, f".upload-{threading.get_ident()}-{time.time_ns()}")
+    try:
+        try:
+            f.save(tmp)
+        except OSError as exc:
+            if _disk_full(exc):
+                raise ApiError(FULL_MSG, 507)
+            raise
+        sha1, size = _file_sha1(tmp), os.path.getsize(tmp)
+        with _lock:
+            site = load_site(pid)
+            if sha1 in site["seen"]:
+                return jsonify(added=None, duplicate=True, summary=site_summary(pid))
+            site_id = _next_site_id(site)
+            ext = os.path.splitext(secure_filename(f.filename) or "photo.jpg")[1].lower() or ".jpg"
+            filename = f"{site_id}{ext}"
+            path = os.path.join(d, filename)
+            os.replace(tmp, path)
+            rec = _site_record(pid, site_id, filename,
+                               taken=_taken(path, request.form.get("modified")),
+                               sha1=sha1, size=size, original=f.filename[:200])
+            site["photos"].append(rec)
+            site["seen"].append(sha1)
+            save_site(site, pid)
+            return jsonify(added=rec, duplicate=False, summary=site_summary(pid))
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+@app.route("/api/visits/<pid>/site-photos/<site_id>", methods=["DELETE"])
+@require_pin
+def api_site_photo_delete(pid, site_id):
+    with _lock:
+        _need_visit(load_index(), pid)
+        site = load_site(pid)
+        rec = next((p for p in site["photos"] if p["site_id"] == site_id), None)
+        if rec is None:
+            raise ApiError(f"no such site photo: {site_id}", 404)
+        _remove_site_files(pid, rec)
+        site["photos"].remove(rec)
+        # a deleted photo may be added again later
+        site["seen"] = [s for s in site["seen"] if s != rec.get("sha1")]
+        save_site(site, pid)
+        return jsonify(summary=site_summary(pid))
+
+
+@app.route("/api/visits/<pid>/site-photos/build", methods=["POST"])
+@require_pin
+def api_site_photos_build(pid):
+    """Zip the visit's site photos (as uploaded) for download; the photos
+    are removed once the download has fully gone out."""
+    with _lock:
+        p = _need_visit(load_index(), pid)
+        site = load_site(pid)
+        photos = _sorted_site(site)
+        if not photos:
+            raise ApiError("no site photos to download")
+        job = next((j for j in load_jobs()["jobs"] if j["job_id"] == p.get("job_id")), {})
+        vno = _visit_no(p)
+        label = " ".join(x for x in (job.get("number"), job.get("name")) if x) or "Site photos"
+        name = f"{label} SV{vno} site photos.zip"
+        path = site_zip_file(pid)
+        tmp = path + ".tmp"
+        try:
+            with zipfile.ZipFile(tmp, "w") as zf:
+                _add_site_to_zip(zf, pid, vno, photos)
+        except OSError as exc:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            if _disk_full(exc):
+                raise ApiError("The server is too full to build the zip. Delete some site "
+                               "photos, or download a few at a time.", 507)
+            raise
+        os.replace(tmp, path)
+        with open(path + ".json", "w", encoding="utf-8") as fh:
+            json.dump({"name": name, "built": _now(), "count": len(photos),
+                       "ids": [r["site_id"] for r in photos]}, fh)
+        return jsonify(url=f"/api/visits/{pid}/site-photos/download", name=name,
+                       count=len(photos), bytes=os.path.getsize(path))
+
+
+@app.route("/api/visits/<pid>/site-photos/download")
+@require_pin
+def api_site_photos_download(pid):
+    """The last site photos zip. The first full download removes the photos
+    it holds from the server; later ones are just copies."""
+    with _lock:
+        _need_visit(load_index(), pid)
+        _purge_old_zips(pid)
+    path = site_zip_file(pid)
+    if not os.path.exists(path):
+        raise ApiError("no site photos zip built yet, or it has expired", 404)
+    meta = _zip_meta(path)
+    ids = set(meta.get("ids") or [])
+    return _send_then(path, meta.get("name") or "site_photos.zip",
+                      after=(lambda: _site_removed(pid, ids)) if ids else None)
+
+
+@app.route("/api/visits/<pid>/site-photos/<site_id>/item", methods=["POST"])
+@require_pin
+def api_site_photo_to_item(pid, site_id):
+    """Make a site photo a report item: a new item in the visit with this
+    photo, which leaves the site photos. Returns the new entry."""
+    with _lock:
+        _need_visit(load_index(), pid)
+        site = load_site(pid)
+        rec = next((p for p in site["photos"] if p["site_id"] == site_id), None)
+        if rec is None:
+            raise ApiError(f"no such site photo: {site_id}", 404)
+        data = load(pid)
+        item = {"item_id": next_item_id(data), "created": _now(), "photos": []}
+        entry = new_entry(item, data)
+        item["photos"].append(entry)
+        d = item_dir(item["item_id"], pid)
+        os.makedirs(d, exist_ok=True)
+        image_id = f"{entry['photo_id']}_P01"
+        filename = f"{image_id}_{secure_filename(rec.get('original') or '') or rec['filename']}"
+        shutil.move(os.path.join(site_dir(pid), rec["filename"]), os.path.join(d, filename))
+        try:
+            os.remove(os.path.join(site_dir(pid), f"{site_id}_thumb.jpg"))
+        except OSError:
+            pass
+        im = {"image_id": image_id, "filename": filename,
+              "url": f"/uploads/{pid}/{item['item_id']}/{filename}", "thumb_url": None,
+              "created": _now()}
+        _thumb(im, d, pid, item["item_id"])
+        entry["images"].append(im)
+        _sync_primary(entry)
+        data["items"].append(item)
+        save(data, pid)
+        site["photos"].remove(rec)
+        site["seen"] = [s for s in site["seen"] if s != rec.get("sha1")]
+        save_site(site, pid)
+        return jsonify(item_id=item["item_id"], entry=entry, summary=site_summary(pid))
+
+
+@app.route("/api/item/<item_id>/photo/<photo_id>/image/<image_id>/site", methods=["POST"])
+@require_pin
+@require_project
+def api_image_to_site(item_id, photo_id, image_id):
+    """Move an item's photo to the visit's site photos, at full size. An item
+    left with nothing in it (no photo, description or action) goes too."""
+    pid = current_pid()
+    with _lock:
+        data = load()
+        item = need_item(data, item_id)
+        entry = need_photo(item, photo_id)
+        im = next((x for x in entry.get("images") or [] if x["image_id"] == image_id), None)
+        if im is None or not im.get("filename"):
+            raise ApiError(f"no such photo: {image_id}", 404)
+        site = load_site(pid)
+        site_id = _next_site_id(site)
+        ext = os.path.splitext(im["filename"])[1].lower() or ".jpg"
+        filename = f"{site_id}{ext}"
+        os.makedirs(site_dir(pid), exist_ok=True)
+        path = os.path.join(site_dir(pid), filename)
+        shutil.move(os.path.join(item_dir(item_id), im["filename"]), path)
+        try:
+            os.remove(os.path.join(item_dir(item_id), _thumb_name(im)))
+        except (OSError, TypeError):
+            pass
+        rec = _site_record(pid, site_id, filename, taken=_taken(path), sha1=_file_sha1(path),
+                           size=os.path.getsize(path), original=im["filename"])
+        site["photos"].append(rec)
+        site["seen"].append(rec["sha1"])
+        entry["images"].remove(im)
+        _sync_primary(entry)
+        removed = False
+        if not entry["images"] and not (entry.get("description") or "").strip() \
+                and not (entry.get("action") or "").strip() and not entry.get("updates"):
+            for name in entry_files(entry):
+                try:
+                    os.remove(os.path.join(item_dir(item_id), name))
+                except OSError:
+                    pass
+            item["photos"].remove(entry)
+            if not item["photos"]:
+                data["items"].remove(item)
+            removed = True
+        save(data)
+        save_site(site, pid)
+        return jsonify(entry=None if removed else entry, removed=removed,
+                       summary=site_summary(pid))
+
+
 # ---------------------------------------------------------------- audio
 
 def transcribe(path):
@@ -2502,10 +2948,27 @@ def api_export_build():
     with open(tmp, "wb") as fh:
         fh.write(buf.getvalue())
     os.replace(tmp, path)
+    site_ids = []
+    with _lock:
+        _purge_old_zips(pid)
+        photos = _sorted_site(load_site(pid))
+        if photos:
+            p = find_project(load_index(), pid) or {}
+            folder = name[:-4] if name.lower().endswith(".zip") else name
+            try:
+                with zipfile.ZipFile(path, "a") as zf:
+                    _add_site_to_zip(zf, pid, _visit_no(p), photos, f"{folder}/Site photos/")
+            except OSError as exc:
+                if _disk_full(exc):
+                    raise ApiError("The server is too full to add the site photos to the "
+                                   "report. Download the site photos on their own first.", 507)
+                raise
+            site_ids = [r["site_id"] for r in photos]
     with open(path + ".json", "w", encoding="utf-8") as fh:
-        json.dump({"name": name, "built": _now()}, fh)
+        json.dump({"name": name, "built": _now(), "site_ids": site_ids}, fh)
     return jsonify(url="/api/export/download", name=name, notice=notice,
-                   bytes=os.path.getsize(path), seconds=round(time.time() - started, 1))
+                   bytes=os.path.getsize(path), seconds=round(time.time() - started, 1),
+                   site_photos=len(site_ids))
 
 
 @app.route("/api/export/download")
@@ -2517,14 +2980,10 @@ def api_export_download():
     path = export_file(pid)
     if not os.path.exists(path):
         raise ApiError("no export built yet", 404)
-    name = "site_visit_report.zip"
-    try:
-        with open(path + ".json", encoding="utf-8") as fh:
-            name = json.load(fh).get("name") or name
-    except (OSError, ValueError):
-        pass
-    return send_file(path, mimetype="application/zip", as_attachment=True,
-                     download_name=name, conditional=False, max_age=0)
+    meta = _zip_meta(path)
+    ids = set(meta.get("site_ids") or [])
+    return _send_then(path, meta.get("name") or "site_visit_report.zip",
+                      after=(lambda: _site_removed(pid, ids)) if ids else None)
 
 
 # ---------------------------------------------------------------- errors

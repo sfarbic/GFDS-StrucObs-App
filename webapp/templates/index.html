@@ -90,6 +90,11 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 /* location picker: the sheet sits on a stage that pans and zooms inside the
    holder; pins counter-scale (--inv) so they stay one size while zooming */
 #planDlg{width:min(760px,96vw)}
+/* one tap: this item goes where the last located item is */
+#planSame{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-bottom:10px;
+  padding:11px;border-radius:10px;border:1px solid color-mix(in srgb,var(--brand) 35%,var(--line));
+  background:color-mix(in srgb,var(--brand) 8%,var(--card));color:var(--fg);font:inherit;font-weight:650;cursor:pointer}
+#planSame svg{width:18px;height:18px;color:var(--brand);flex:0 0 auto}
 #planHolder{position:relative;overflow:hidden;touch-action:none;height:min(62vh,600px);
   background:var(--card2);border:1px solid var(--line);border-radius:9px;cursor:crosshair}
 #planStage{position:absolute;left:0;top:0;transform-origin:0 0;--inv:1}
@@ -134,9 +139,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   <button class="tool" id="toolLoc" title="Pick location on plan">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.6 7-12a7 7 0 0 0-14 0c0 5.4 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>
     <span id="locLbl">Location</span></button>
-  <button class="tool" id="toolInc" title="Include in report">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path id="incTick" d="M8 12.5l3 3 5-6"/></svg>
-    <span id="incLbl">In report</span></button>
 </div>
 
 <div class="field">
@@ -164,6 +166,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <button class="ghost sm" id="planClear">Clear</button>
       <button class="sm" id="planDone">Done</button></div></div>
   <div class="dlgBody">
+    <button id="planSame" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-6.6 7-12a7 7 0 0 0-14 0c0 5.4 7 12 7 12z"/>
+      <circle cx="12" cy="10" r="2.6"/></svg><span id="planSameLbl">Same spot</span></button>
     <select id="planSelect" style="margin-bottom:10px"></select>
     <div id="planHolder">
       <div id="planStage">
@@ -223,12 +228,11 @@ const say = (t,c="") => { $('status').className = "msg "+c; $('status').textCont
 /* ---------------- render ---------------- */
 function render(){
   const all = entries(), c = cur();
-  const inReport = all.filter(x => x.e.include).length;
   $('visitSub').textContent = (visit ? `Site Visit ${visit.visit_no} · ` : "") +
-    `${all.length} item${all.length===1?"":"s"} · ${inReport} in report`;
+    `${all.length} item${all.length===1?"":"s"}`;
   $('prev').disabled = ei <= 0;
   const on = !!c;
-  ['btnDelItem','toolLoc','toolInc','desc','action','micDesc','micAct']
+  ['btnDelItem','toolLoc','desc','action','micDesc','micAct']
     .forEach(id => $(id).disabled = !on);
   if (!c){
     $('itemLabel').innerHTML = `No items yet`;
@@ -244,10 +248,6 @@ function render(){
   const plan = e.location && plans.find(p => p.plan_id === e.location.plan_id);
   $('toolLoc').classList.toggle('on', !!e.location);
   $('locLbl').textContent = e.location ? (plan ? shortName(plan.name) : "Located") : "Location";
-  $('toolInc').classList.toggle('on', e.include);
-  $('toolInc').classList.toggle('off', !e.include);
-  $('incTick').style.display = e.include ? "" : "none";
-  $('incLbl').textContent = e.include ? "In report" : "Excluded";
 
   /* never overwrite a box mid-dictation or mid-typing */
   if (Dictate.box !== $('desc') && document.activeElement !== $('desc')) $('desc').value = e.description || "";
@@ -382,11 +382,22 @@ function photoStore(c){
                                    {method:"DELETE"}));
       render(); say("Photo deleted.","ok");
     },
+    // not a report photo after all: keep it, full size, with the site photos
+    extra: [{label: "Move to site photos", cls: "ph-ghost", busy: "Moving…", run: async i => {
+      const r = await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}/image/${im(i).image_id}/site`,
+                          {method:"POST"});
+      if (r.removed){
+        Photos.close(); await load();
+        say(`Moved to site photos. ITEM ${label(c.e)} had nothing else in it, so it was removed.`,"ok");
+      } else {
+        Object.assign(c.e, r.entry); render();
+        say(`Moved to site photos (${r.summary.count} waiting to download).`,"ok");
+      }
+    }}],
   };
 }
 
-/* ---------------- include, typing ---------------- */
-$('toolInc').onclick = () => { const c = cur(); if (c) patch({include: !c.e.include}); };
+/* ---------------- typing ---------------- */
 let dT; $('desc').oninput = () => { clearTimeout(dT); const c = cur(), v = $('desc').value;
   dT = setTimeout(()=>patch({description:v}, c), 700); };
 let aT; $('action').oninput = () => { clearTimeout(aT); const c = cur(), v = $('action').value;
@@ -438,10 +449,28 @@ async function openPlan({after = false} = {}){
   if (!$('planSelect').value) $('planSelect').selectedIndex = 0;
   $('planTitle').textContent = after ? `Where is ITEM ${label(e)}?` : "Tap the location";
   $('planSkip').hidden = !after;
+  // Same spot: the nearest item before this one that has a pin (else after it)
+  const all = entries(), here = all.findIndex(x => x.e === e);
+  sameSrc = [...all.slice(0, here).reverse(), ...all.slice(here + 1)].find(x => x.e.location)?.e || null;
+  const same = sameSrc && !(e.location && sameLoc(e.location, sameSrc.location));
+  $('planSame').hidden = !same;
+  if (same) $('planSameLbl').textContent = `Same spot as ITEM ${label(sameSrc)}`;
   $('planPin').hidden = true;
   $('planDlg').showModal();
   await drawPlan();
 }
+let sameSrc = null;
+const sameLoc = (a, b) => a.plan_id === b.plan_id && (a.page || 1) === (b.page || 1)
+  && Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
+/* one tap and it is saved; 📍 again to nudge it */
+$('planSame').onclick = async () => {
+  if (!sameSrc) return;
+  const loc = {...sameSrc.location}, from = label(sameSrc);
+  $('planDlg').close();
+  rememberSheet(`${loc.plan_id}|${loc.page || 1}`);
+  await patch({location: loc});
+  say(`Placed at the same spot as ITEM ${from}. Tap 📍 Location to adjust it.`,"ok");
+};
 $('planSelect').onchange = () => { pendingLoc=null; $('planPin').hidden=true; drawPlan(); };
 
 const picked = () => { const [plan_id, page] = $('planSelect').value.split("|");
@@ -606,8 +635,17 @@ $('btnFinish').onclick = async () => {
   location.href = job ? `/projects/${job.job_id}` : "/";
 };
 
-load().then(() => Tips.run("items", [
-  {at: '#thumb', text: "Tap to take a photo, or choose one from your library. Tap the photo later to add more, retake or delete."},
+const wanted = new URLSearchParams(location.search).get("photo");
+load().then(() => {
+  if (!wanted) return;
+  history.replaceState(null, "", location.pathname);
+  const at = entries().findIndex(x => x.e.photo_id === wanted);
+  if (at < 0) return;
+  ei = at; render();
+  say(`New ITEM ${label(cur().e)} from a site photo. Add its description${plans.length ? " and location" : ""}.`,"ok");
+  if (plans.length) openPlan({after: true});
+}).then(() => Tips.run("items", [
+  {at: '#thumb', text: "Tap to take a report photo, or choose one from your library. Tap the photo later to add more, retake, delete or move it to the site photos."},
   {at: '#toolLoc', text: "Place this item on the plan. After the first photo, this opens by itself."},
   {at: '#desc', text: "Type, or tap the mic and speak. Add an Action below if the contractor needs to do something; that makes it an action item."},
   {at: '#next', text: "Go to the next item. On the last item, it starts a new one."},
