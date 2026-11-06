@@ -1,15 +1,30 @@
 {% extends "_base.html" %}
 {% block title %}Projects — GFDS Observation App{% endblock %}
+{% block style %}
+/* the search and the list sit in one card; the list scrolls inside it,
+   sized by fit() so the whole card stays on one screen */
+.pc{margin-top:16px;background:var(--card);border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));
+  border-radius:15px;overflow:hidden;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.pc-hd{padding:12px 14px;background:color-mix(in srgb,var(--brand) 9%,var(--card));
+  border-bottom:1px solid color-mix(in srgb,var(--brand) 22%,var(--line))}
+.pc-hd input{margin:0;background:var(--bg)}
+#list{margin:0;padding:12px 10px 12px 14px;overflow-y:auto;overscroll-behavior:contain}
+#list .it{background:var(--bg)}
+#list .it:last-child{margin-bottom:0}
+#list .empty{margin:6px 0}
+#list.more{mask-image:linear-gradient(#000 calc(100% - 28px),transparent);
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
+{% endblock %}
 {% block content %}
 <div class="top">
   <a class="back" href="/" title="Home">&lsaquo;</a>
   <div class="t"><b>Existing project</b><small id="count">Loading…</small></div>
   <a class="btn sm" href="/projects/new">+ New</a>
 </div>
-<div class="sec">
-  <input type="search" id="q" placeholder="Search number, name or address" autocomplete="off">
+<div class="pc">
+  <div class="pc-hd"><input type="search" id="q" placeholder="Search number, name or address" autocomplete="off"></div>
+  <div class="list" id="list"></div>
 </div>
-<div class="sec list" id="list"></div>
 {% endblock %}
 {% block script %}
 <script>
@@ -37,7 +52,20 @@ function render(){
       </div><span class="go">&rsaquo;</span></a>`;
   }).join("");
 }
-$('q').oninput = render;
-api('/api/jobs').then(r => { jobs = r.jobs; render(); }).catch(e => say(e.message,"bad"));
+/* cap the list so the card ends just above the bottom of the screen; on a
+   very short screen it keeps a minimum and the page scrolls instead */
+function fit(){
+  const l = $('list'); l.style.maxHeight = "none";
+  const over = l.getBoundingClientRect().bottom + scrollY - (innerHeight - 28);
+  if (over > 0) l.style.maxHeight = Math.max(200, l.offsetHeight - over) + "px";
+  fade();
+}
+// fade the bottom edge while there is more list below
+const fade = () => { const l = $('list');
+  l.classList.toggle("more", l.scrollHeight - l.scrollTop - l.clientHeight > 4); };
+addEventListener("resize", fit);
+$('list').addEventListener("scroll", fade, {passive: true});
+$('q').oninput = () => { render(); $('list').scrollTop = 0; fit(); };
+api('/api/jobs').then(r => { jobs = r.jobs; render(); fit(); }).catch(e => say(e.message,"bad"));
 </script>
 {% endblock %}

@@ -214,10 +214,13 @@ function fit(){
   // how far the bottom card runs past the screen (less room for the status line)
   const over = $('rcOpen').getBoundingClientRect().bottom + scrollY - (innerHeight - 44);
   if (over > 0) v.style.maxHeight = Math.max(120, v.offsetHeight - over) + "px";
-  v.classList.toggle("more", v.scrollHeight - v.scrollTop - v.clientHeight > 4);
+  fade();
 }
+// fade the bottom edge while there are more visits below
+const fade = () => { const v = $('visits');
+  v.classList.toggle("more", v.scrollHeight - v.scrollTop - v.clientHeight > 4); };
 addEventListener("resize", fit);
-$('visits').addEventListener("scroll", fit, {passive: true});
+$('visits').addEventListener("scroll", fade, {passive: true});
 
 const openItems = () => page.action_items.filter(a => a.include && !a.closed_visit_no);
 function renderOpen(){

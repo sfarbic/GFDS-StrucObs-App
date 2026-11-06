@@ -17,6 +17,11 @@
 .visit .meta{color:var(--mut);font-size:12.5px;margin-top:2px}
 .visit .meta .open{color:var(--warn);font-weight:600}
 .bottom{display:grid;gap:10px}
+/* the visit list scrolls inside its box, sized by fit() so the page fits on
+   one screen; a fade at the bottom while there are more visits below */
+#visits{overflow-y:auto;overscroll-behavior:contain;margin:0 -4px;padding:0 4px 2px}
+#visits.more{mask-image:linear-gradient(#000 calc(100% - 28px),transparent);
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
 .plan{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
 .plan .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plan .meta{color:var(--mut);font-size:12.5px}
@@ -105,7 +110,7 @@ function renderVisits(){
 
 async function load(){
   page = await api(`/api/jobs/${JID}`);
-  renderInfo(); renderVisits();
+  renderInfo(); renderVisits(); fit();
   const open = page.action_items.filter(a => a.include && !a.closed_visit_no).length;
   $('btnActions').textContent = `All open action items (${open})`;
 }
@@ -121,12 +126,28 @@ $('btnReport').onclick = () => {
   location.href = `/projects/${JID}/report`;
 };
 
+/* cap the visit list so Generate report ends just above the bottom of the
+   screen; with the project info open, or on a very short screen, the page
+   scrolls as usual */
+function fit(){
+  const v = $('visits'); v.style.maxHeight = "none";
+  if ($('editBox').hidden){
+    const over = $('btnReport').getBoundingClientRect().bottom + scrollY - (innerHeight - 20);
+    if (over > 0) v.style.maxHeight = Math.max(150, v.offsetHeight - over) + "px";
+  }
+  fade();
+}
+const fade = () => { const v = $('visits');
+  v.classList.toggle("more", v.scrollHeight - v.scrollTop - v.clientHeight > 4); };
+addEventListener("resize", fit);
+$('visits').addEventListener("scroll", fade, {passive: true});
+
 $('btnEdit').onclick = () => {
   if (!$('editBox').hidden) return $('eCancel').click();
   const j = page.job;
   $('eName').value = j.name; $('eNumber').value = j.number; $('eAddress').value = j.address;
   $('editBox').hidden = false;
-  $('btnEdit').textContent = "Close";
+  $('btnEdit').textContent = "Close"; fit();
   api(`/api/jobs/${JID}/plans`).then(r => renderPlans(r.plans)).catch(e => say(e.message,"bad"));
 };
 
@@ -162,7 +183,7 @@ PlanDrop.attach($('planDrop'), async files => {
     finally{ PlanDrop.busy($('planDrop'), false); }
   }
 });
-$('eCancel').onclick = () => { $('editBox').hidden = true; $('btnEdit').textContent = "Edit project info"; };
+$('eCancel').onclick = () => { $('editBox').hidden = true; $('btnEdit').textContent = "Edit project info"; fit(); };
 $('eSave').onclick = async () => {
   const body = {name: $('eName').value.trim(), number: $('eNumber').value.trim(),
                 address: $('eAddress').value.trim()};
