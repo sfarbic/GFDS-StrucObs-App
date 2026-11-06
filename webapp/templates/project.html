@@ -8,7 +8,6 @@
 .phead .ctr b{display:block;font-size:19px;letter-spacing:-.015em;line-height:1.25}
 .phead .ctr div{color:var(--mut);font-size:12.5px;line-height:1.45}
 .phead .btn.sm{white-space:nowrap}
-.box{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--card)}
 .visit{display:block;width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);
   border-radius:12px;padding:12px 14px;margin-top:10px;cursor:pointer;color:var(--fg);font:inherit}
 .visit:hover{border-color:var(--accent)}
@@ -35,9 +34,9 @@
 </div>
 
 <div id="editBox" hidden>
-  <div class="sec">
-    <h2>Project information</h2>
-    <div class="card">
+  <section class="rc">
+    <div class="rc-hd"><div><b>Project information</b></div></div>
+    <div class="rc-bd">
       <label class="f" for="eName">Project name</label><input type="text" id="eName" maxlength="120">
       <label class="f" for="eNumber">Project number</label><input type="text" id="eNumber" maxlength="40">
       <label class="f" for="eAddress">Project address <small>(optional)</small></label>
@@ -45,32 +44,35 @@
       <div class="row" style="margin-top:14px">
         <button class="ghost" id="eCancel">Cancel</button><button id="eSave">Save</button></div>
     </div>
-  </div>
-  <div class="sec">
-    <h2>Upload Plans <span style="text-transform:none;letter-spacing:0;font-weight:500">(Optional: Allows you to locate photos on plan for reference)</span></h2>
-    <div class="card">
+  </section>
+  <section class="rc">
+    <div class="rc-hd"><div><b>Upload Plans</b><small>Optional: Allows you to locate photos on plan for reference</small></div></div>
+    <div class="rc-bd">
       <div id="planDrop"></div>
       <div id="planList" style="margin-top:8px"></div>
       <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.
         A plan added here is saved straight away.</div>
     </div>
-  </div>
+  </section>
   <div class="sec" style="text-align:center">
     <button class="danger sm" id="btnDelete">Delete project</button>
   </div>
 </div>
 
-<div class="sec">
-  <h2>Site visits</h2>
-  <div class="box">
+<!-- the project's day-to-day view; hidden while Edit project info is open -->
+<div id="mainBox">
+<section class="rc">
+  <div class="rc-hd"><div><b>Site visits</b></div></div>
+  <div class="rc-bd">
     <a class="btn wide" href="/projects/{{ jid }}/visits/new" id="btnNewVisit">+ New site visit</a>
     <div id="visits"></div>
   </div>
-</div>
+</section>
 
 <div class="sec bottom">
   <a class="btn ghost wide" href="/projects/{{ jid }}/actions" id="btnActions">All open action items</a>
   <button class="ghost wide" id="btnReport">Generate report</button>
+</div>
 </div>
 {% include "_plan_sheets.html" %}
 {% include "_plan_drop.html" %}
@@ -146,7 +148,7 @@ $('btnEdit').onclick = () => {
   if (!$('editBox').hidden) return $('eCancel').click();
   const j = page.job;
   $('eName').value = j.name; $('eNumber').value = j.number; $('eAddress').value = j.address;
-  $('editBox').hidden = false;
+  $('editBox').hidden = false; $('mainBox').hidden = true; scrollTo(0, 0);
   $('btnEdit').textContent = "Close"; fit();
   api(`/api/jobs/${JID}/plans`).then(r => renderPlans(r.plans)).catch(e => say(e.message,"bad"));
 };
@@ -183,7 +185,7 @@ PlanDrop.attach($('planDrop'), async files => {
     finally{ PlanDrop.busy($('planDrop'), false); }
   }
 });
-$('eCancel').onclick = () => { $('editBox').hidden = true; $('btnEdit').textContent = "Edit project info"; fit(); };
+$('eCancel').onclick = () => { $('editBox').hidden = true; $('mainBox').hidden = false; $('btnEdit').textContent = "Edit project info"; fit(); };
 $('eSave').onclick = async () => {
   const body = {name: $('eName').value.trim(), number: $('eNumber').value.trim(),
                 address: $('eAddress').value.trim()};

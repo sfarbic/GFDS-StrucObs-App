@@ -6,7 +6,9 @@
   <div class="t"><b id="title">{{ "Site visit info" if pid else "New site visit" }}</b><small id="sub">&nbsp;</small></div>
 </div>
 
-<div class="sec card">
+<section class="rc">
+  <div class="rc-hd"><div><b>Site visit information</b><small>Prints in the report header.</small></div></div>
+  <div class="rc-bd">
   <div class="row">
     <div><label class="f" for="visitNo">Site Visit No</label>
       <input type="number" id="visitNo" min="1" step="1" inputmode="numeric"></div>
@@ -31,7 +33,8 @@
     <button class="danger sm" id="btnDeleteVisit">Delete this site visit</button>
   </div>
   {% endif %}
-</div>
+  </div>
+</section>
 {% endblock %}
 {% block script %}
 <script>

@@ -11,9 +11,9 @@
   <div class="t"><b>Settings</b><small>Apply to every project</small></div>
 </div>
 
-<div class="sec">
-  <h2>Tips</h2>
-  <div class="card">
+<section class="rc">
+  <div class="rc-hd"><div><b>Tips</b></div></div>
+  <div class="rc-bd">
     <div class="tpl" id="tipsState"></div>
     <div class="row">
       <button class="ghost" id="tipsAgain">Show tips again</button>
@@ -22,11 +22,11 @@
     <div class="hint">Tips point out each screen's main buttons the first time you open it,
       on this phone or computer.</div>
   </div>
-</div>
+</section>
 
-<div class="sec">
-  <h2>Default report template</h2>
-  <div class="card">
+<section class="rc">
+  <div class="rc-hd"><div><b>Default report template</b></div></div>
+  <div class="rc-bd">
     <div class="tpl" id="tplInfo">Loading…</div>
     <div class="row">
       <button class="ghost" id="tplChange">Upload template</button>
@@ -37,7 +37,7 @@
     <input type="file" id="tplInput" hidden
            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
   </div>
-</div>
+</section>
 {% endblock %}
 {% block script %}
 <script>

@@ -12,9 +12,9 @@
   <div class="t"><b>New project</b><small>Project information and plans</small></div>
 </div>
 
-<div class="sec">
-  <h2>Project information</h2>
-  <div class="card">
+<section class="rc">
+  <div class="rc-hd"><div><b>Project information</b></div></div>
+  <div class="rc-bd">
   <label class="f" for="name">Project name</label>
   <input type="text" id="name" maxlength="120" autocomplete="off" placeholder="e.g. Elm St Retrofit">
   <label class="f" for="number">Project number</label>
@@ -23,16 +23,16 @@
   <label class="f" for="address">Project address <small>(optional)</small></label>
   <input type="text" id="address" maxlength="300" autocomplete="off" placeholder="Street, city">
   </div>
-</div>
+</section>
 
-<div class="sec">
-  <h2>Upload Plans <span style="text-transform:none;letter-spacing:0;font-weight:500">(Optional: Allows you to locate photos on plan for reference)</span></h2>
-  <div class="card">
+<section class="rc">
+  <div class="rc-hd"><div><b>Upload Plans</b><small>Optional: Allows you to locate photos on plan for reference</small></div></div>
+  <div class="rc-bd">
     <div id="planDrop"></div>
     <div id="planList" style="margin-top:8px"></div>
     <div class="hint">For a PDF you pick the sheets to keep and confirm their sheet numbers.</div>
   </div>
-</div>
+</section>
 
 <div class="sec">
   <button class="wide" id="create">Create project</button>

@@ -65,8 +65,7 @@ $('btnReport').onclick = () => {
 $('showClosed').onclick = () => { showClosed = !showClosed; render(); };
 load().then(() => Tips.run("actions", [
   {at: '#actions .ai', text: "Every action item still open, from all site visits, with the visit it came from."},
-  {at: '#actions .ai .add', text: "Record progress: what was done and when, with photos if you have them. It prints in that visit's report."},
-  {at: '#actions .ai .close', text: "When the work is done, close it out. The report notes \"No further action required.\""},
+  {at: '#actions .ai .add', text: "Record progress: what was done and when, with photos if you have them. When the work is done, tick <b>Close out this item</b> in the update; the report notes \"No further action required.\""},
   {at: '#btnReport', text: "Download a Word report of every open action item, to send to the contractor."},
   {at: '#showClosed', text: "Closed items are hidden. Tap here to see them, or to reopen one."},
 ])).catch(e => say(e.message,"bad"));

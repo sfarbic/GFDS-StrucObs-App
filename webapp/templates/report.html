@@ -28,20 +28,7 @@
   border:1px solid var(--line);border-radius:9px;cursor:pointer;background:var(--bg)}
 .lay label:has(input:checked){border-color:var(--accent);font-weight:600}
 .lay input{accent-color:var(--accent);margin:0}
-/* the two kinds of report, each in its own card with a header band */
-.rc{background:var(--card);border:1px solid var(--line);border-radius:15px;overflow:hidden;
-  margin-top:18px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
-.rc-hd{display:flex;gap:12px;align-items:center;padding:13px 14px;background:var(--card2);
-  border-bottom:1px solid var(--line)}
-.rc-ic{flex:0 0 auto;display:grid;place-items:center;width:38px;height:38px;border-radius:10px;
-  background:var(--accent);color:var(--accent-fg,#fff)}
-.rc-ic svg{width:21px;height:21px}
-.rc-hd b{display:block;font-size:16px;letter-spacing:-.01em}
-.rc-hd small{display:block;color:var(--mut);font-size:12.5px;line-height:1.35;margin-top:1px}
-.rc-bd{padding:14px}
-.rc-bd .lbl{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
-  font-weight:600;margin:0 0 8px}
-.rc .pick{background:var(--bg)}
+.rc .pick,.rc .multi{background:var(--bg)}
 /* both cards fit on one screen: fit() (below) caps the site visit list's
    height and the list scrolls inside its card */
 #visits{overflow-y:auto;overscroll-behavior:contain;margin:0 -4px 12px;padding:2px 4px}
@@ -49,17 +36,12 @@
 #visits .pick:last-child{margin-bottom:0}
 /* short phones: drop the explanatory lines so both cards still fit */
 @media (max-height:740px){
-  .rc .hint,.rc-hd small{display:none}
-  .rc{margin-top:12px}.rc-hd{padding:10px 14px}.rc-bd{padding:12px 14px}
-  .rc-ic{width:32px;height:32px}.rc-ic svg{width:18px;height:18px}
+  #step1 .rc .hint,#step1 .rc-hd small{display:none}
+  #step1 .rc{margin-top:12px}#step1 .rc-hd{padding:10px 14px}#step1 .rc-bd{padding:12px 14px}
+  #step1 .rc-ic{width:32px;height:32px}#step1 .rc-ic svg{width:18px;height:18px}
   #openInfo{font-size:12.5px}}
 #visits.more{mask-image:linear-gradient(#000 calc(100% - 28px),transparent);
   -webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
-/* both cards wear the GFDS red header */
-.rc{border-color:color-mix(in srgb,var(--brand) 30%,var(--line))}
-.rc .rc-hd{background:color-mix(in srgb,var(--brand) 9%,var(--card));
-  border-bottom-color:color-mix(in srgb,var(--brand) 22%,var(--line))}
-.rc .rc-ic{background:var(--brand);color:#fff}
 {% endblock %}
 {% block content %}
 <div class="top">
@@ -99,12 +81,11 @@
 </div>
 
 <div id="step2" hidden>
-  <div class="sec">
-    <h2>Items with more than one photo</h2>
-    <div class="hint" style="margin:-4px 0 12px">Tick the photos to include and choose how they sit
-      in the report.</div>
-    <div id="multis"></div>
-  </div>
+  <section class="rc">
+    <div class="rc-hd"><div><b>Items with more than one photo</b><small>Tick the photos to include and
+      choose how they sit in the report.</small></div></div>
+    <div class="rc-bd"><div id="multis"></div></div>
+  </section>
   <div class="sec row">
     <button class="ghost" id="btnBack">Back</button>
     <button id="btnBuild">Generate report</button>

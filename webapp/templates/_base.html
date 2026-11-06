@@ -44,6 +44,23 @@ button:disabled{opacity:.45;cursor:default}
 .sec h2{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
   font-weight:700;margin:0 0 10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px}
+/* section card with the GFDS red header band: <section class="rc"><div class="rc-hd">
+   [<span class="rc-ic">icon</span>]<div><b>Title</b><small>line</small></div></div>
+   <div class="rc-bd">…</div></section> */
+.rc{background:var(--card);border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));
+  border-radius:15px;overflow:hidden;margin-top:18px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.rc-hd{display:flex;gap:12px;align-items:center;padding:13px 14px;
+  background:color-mix(in srgb,var(--brand) 9%,var(--card));
+  border-bottom:1px solid color-mix(in srgb,var(--brand) 22%,var(--line))}
+.rc-hd>div{flex:1;min-width:0}
+.rc-ic{flex:0 0 auto;display:grid;place-items:center;width:38px;height:38px;border-radius:10px;
+  background:var(--brand);color:#fff}
+.rc-ic svg{width:21px;height:21px}
+.rc-hd b{display:block;font-size:16px;letter-spacing:-.01em}
+.rc-hd small{display:block;color:var(--mut);font-size:12.5px;line-height:1.35;margin-top:1px}
+.rc-bd{padding:14px}
+.rc-bd .lbl{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+  font-weight:600;margin:0 0 8px}
 label.f{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}
 label.f:first-child{margin-top:0}
 label.f small{font-weight:400;color:var(--mut)}
