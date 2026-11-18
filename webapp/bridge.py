@@ -86,11 +86,19 @@ def to_project(data: dict, *, name: str, item_dir: Callable[[str], Path | str],
     return project
 
 
+def _item_order(it):
+    """Items run in item-number order (the order the visit's list shows and
+    can be dragged into); one not numbered yet goes last, by its id."""
+    nums = [ph["number"] for ph in it.get("photos") or []
+            if isinstance(ph.get("number"), int) and ph["number"] > 0]
+    return (min(nums) if nums else 10 ** 9, str(it.get("item_id")))
+
+
 def entries(data: dict, item_dir: Callable[[str], Path | str], *, tz: tzinfo | None = None):
     """(Observation, photo path or None) for every entry, included or not, in
     item then seq order. An entry whose image is not taken yet (or whose file
     is gone) still has its pin and text; it just has no photo."""
-    for item in sorted(data.get("items", []), key=lambda it: str(it.get("item_id"))):
+    for item in sorted(data.get("items", []), key=_item_order):
         photos = sorted(item.get("photos") or [], key=lambda ph: ph.get("seq") or 0)
         folder = Path(item_dir(item["item_id"]))
         if not photos:

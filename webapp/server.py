@@ -577,7 +577,31 @@ def next_plan_id(data):
 
 
 def sorted_items(data):
-    return sorted(data["items"], key=lambda it: it["item_id"])
+    """In item-number order: the order the visit's item list shows, which can
+    be dragged into a new order until the numbers are locked."""
+    def key(it):
+        nums = [e["number"] for e in it.get("photos") or []
+                if isinstance(e.get("number"), int) and e["number"] > 0]
+        return (min(nums) if nums else 10 ** 9, it["item_id"])
+    return sorted(data["items"], key=key)
+
+
+def renumber(data, order=None):
+    """Number the visit's entries 1, 2, 3... in `order` (a list of photo
+    ids), else in their current order. Only while the numbers are unlocked."""
+    entries = [e for it in sorted_items(data) for e in sorted(
+        it.get("photos") or [], key=lambda e: (e.get("number") or 10 ** 9, photo_seq(e)))]
+    if order is not None:
+        at = {pid: i for i, pid in enumerate(order)}
+        entries.sort(key=lambda e: at.get(e["photo_id"], 10 ** 9))
+    for n, e in enumerate(entries, 1):
+        e["number"] = n
+
+
+def is_blank(e):
+    """Nothing in it: no photo, description, action, update or voice note."""
+    return not (e.get("images") or e.get("filename") or (e.get("description") or "").strip()
+                or (e.get("action") or "").strip() or e.get("updates") or e.get("audio_clips"))
 
 
 class ApiError(Exception):
@@ -811,6 +835,7 @@ def visit_dict(p):
                 "visit_date": p.get("visit_date") or ""})
     out.update({k: p.get(k) or "" for k in VISIT_TEXT})
     out["site_photos"] = site_summary(p["project_id"])
+    out["numbers_locked"] = p.get("numbers_locked")
     return out
 
 
@@ -1441,8 +1466,14 @@ def api_open_items(jid):
     oldest visit first, with all its updates."""
     with _lock:
         job = need_job(load_jobs(), jid)
-        items = [a for a in action_items(load_index(), jid)
+        idx = load_index()
+        items = [a for a in action_items(idx, jid)
                  if a["include"] and not a["closed_visit_no"]]
+        if items:
+            # the contractor gets these numbers: their visits lock
+            lock_numbers(idx, [a["pid"] for a in items])
+            items = [a for a in action_items(idx, jid)
+                     if a["include"] and not a["closed_visit_no"]]
     if not items:
         raise ApiError("this project has no open action items", 404)
     from sitescribe import word_report
@@ -1484,6 +1515,62 @@ def _short_date(iso):
     except ValueError:
         return str(iso or "")
     return f"{d.month}/{d.day}/{d:%y}"
+
+
+def numbers_locked(pid):
+    p = find_project(load_index(), pid)
+    return bool(p and p.get("numbers_locked"))
+
+
+def lock_numbers(idx, pids):
+    """Fix these visits' item numbers for good: a report is going out with
+    them. Empty items go first and the rest close up, so the report has no
+    gaps. Saves the index when anything changed; the caller holds _lock."""
+    changed = False
+    for pid in dict.fromkeys(pids):
+        p = find_project(idx, pid)
+        if not p or p.get("numbers_locked"):
+            continue
+        data = load(pid)
+        for it in list(data["items"]):
+            for e in [e for e in it.get("photos") or [] if is_blank(e)]:
+                for name in entry_files(e):
+                    try:
+                        os.remove(os.path.join(item_dir(it["item_id"], pid), name))
+                    except OSError:
+                        pass
+                it["photos"].remove(e)
+            if not it["photos"]:
+                shutil.rmtree(item_dir(it["item_id"], pid), ignore_errors=True)
+                data["items"].remove(it)
+        renumber(data)
+        save(data, pid)
+        p["numbers_locked"] = _now()
+        changed = True
+    if changed:
+        save_index(idx)
+
+
+@app.route("/api/visits/<pid>/order", methods=["POST"])
+@require_pin
+def api_visit_order(pid):
+    """Put the visit's items in a new order and number them 1, 2, 3... in it.
+    Refused once a report has locked the numbers."""
+    order = (request.get_json(silent=True) or {}).get("photo_ids")
+    if not isinstance(order, list) or not all(isinstance(x, str) for x in order):
+        raise ApiError("photo_ids must be a list")
+    with _lock:
+        p = _need_visit(load_index(), pid)
+        if p.get("numbers_locked"):
+            raise ApiError("This visit's item numbers are locked: a report has been "
+                           "generated with them.", 409)
+        data = load(pid)
+        ids = {e["photo_id"] for e in all_entries(data)}
+        if set(order) != ids or len(order) != len(ids):
+            raise ApiError("the order must list every item of the visit once")
+        renumber(data, order)
+        save(data, pid)
+        return jsonify(items=sorted_items(data))
 
 
 def previous_items(idx, entry):
@@ -1671,6 +1758,39 @@ def visit_edit_page(pid):
     return render_template("visit.html", jid=p["job_id"], pid=pid)
 
 
+@app.route("/visits/<pid>/items")
+@require_pin
+def visit_items_page(pid):
+    with _lock:
+        p = _need_visit(load_index(), pid)
+    return render_template("visit_items.html", jid=p["job_id"], pid=pid)
+
+
+@app.route("/api/visits/<pid>/items")
+@require_pin
+def api_visit_items(pid):
+    """The visit's items in number order, for its item list."""
+    with _lock:
+        idx = load_index()
+        p = _need_visit(idx, pid)
+        data = load(pid)
+        plans = {pl["plan_id"]: pl for pl in data["plans"]}
+        vno = _visit_no(p)
+        out = []
+        for it in sorted_items(data):
+            for e in sorted(it.get("photos") or [], key=lambda e: (e.get("number") or 0, photo_seq(e))):
+                im = (e.get("images") or [None])[0]
+                out.append({"item_id": it["item_id"], "photo_id": e["photo_id"],
+                            "number": e.get("number"), "label": entry_label(vno, e),
+                            "description": (e.get("description") or "").strip(),
+                            "action": (e.get("action") or "").strip(),
+                            "location": _plan_place(plans, e.get("location")),
+                            "photos": len(e.get("images") or []),
+                            "thumb": (im.get("thumb_url") or im.get("url")) if im else None,
+                            "closed_visit_no": e.get("closed_visit_no"), "blank": is_blank(e)})
+        return jsonify(visit=visit_dict(p), items=out)
+
+
 @app.route("/capture")
 @require_pin
 @require_project
@@ -1772,6 +1892,8 @@ def api_item_delete(item_id):
         item = need_item(data, item_id)
         data["items"].remove(item)
         shutil.rmtree(item_dir(item_id), ignore_errors=True)
+        if not numbers_locked(current_pid()):
+            renumber(data)
         save(data)
         return jsonify(ok=True)
 
@@ -1960,8 +2082,10 @@ def api_photo_delete(item_id, photo_id):
                 os.remove(os.path.join(d, name))
             except OSError:
                 pass  # record removal is what matters; a missing file is not an error
-        # an item left with no entries stays: its number is still taken
+        # an item left with no entries stays (its folder is still in use)
         item["photos"].remove(entry)
+        if not numbers_locked(current_pid()):
+            renumber(data)
         save(data)
         return jsonify(ok=True)
 
@@ -2442,6 +2566,8 @@ def api_image_to_site(item_id, photo_id, image_id):
             if not item["photos"]:
                 data["items"].remove(item)
             removed = True
+            if not numbers_locked(pid):
+                renumber(data)
         save(data)
         save_site(site, pid)
         return jsonify(entry=None if removed else entry, removed=removed,
@@ -2971,6 +3097,11 @@ def _export_snapshot(pid, choices=None):
     action items), and the entry's name is the project's."""
     with _lock:
         idx = load_index()
+        entry = find_project(idx, pid) or {}
+        if entry.get("job_id"):
+            by_no = {_visit_no(p): p["project_id"] for p in job_visits(idx, entry["job_id"])}
+            shown = {a["visit_no"] for a in previous_items(idx, entry)}
+            lock_numbers(idx, [pid] + [by_no[n] for n in sorted(shown) if n in by_no])
         data = load(pid)
         _apply_photo_choices(data, choices)
         entry = dict(find_project(idx, pid) or {})

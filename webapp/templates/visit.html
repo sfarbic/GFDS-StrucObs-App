@@ -131,7 +131,7 @@ async function loadSite(){
 }
 function renderSite(){
   const n = site.length, s = siteSum || {}, dl = s.downloaded;
-  const done = dl ? `${dl.count} photo${dl.count===1?"":"s"} downloaded ${shortDate((dl.at||"").slice(0,10))} and removed from the app.` : "";
+  const done = dl ? `${dl.count} photo${dl.count===1?"":"s"} downloaded ${localDate(dl.at)} and removed from the app.` : "";
   $('spInfo').innerHTML = n
     ? `<b>${n} photo${n===1?"":"s"}</b> · ${MB(s.bytes || 0)} waiting to be downloaded${done ? `<br>${done}` : ""}`
     : (done || "No site photos yet.");
@@ -145,7 +145,7 @@ function renderSite(){
   $('spDown').textContent = n ? `Download site photos (${n})` : "Download site photos";
   const z = s.zip;
   $('spAgain').hidden = !z || n > 0;
-  if (z) $('spAgain').textContent = `Download again (${z.count} photo${z.count===1?"":"s"}, until ${shortDate((z.expires||"").slice(0,10))})`;
+  if (z) $('spAgain').textContent = `Download again (${z.count} photo${z.count===1?"":"s"}, until ${localDate(z.expires)})`;
 }
 
 /* the photo screen for site photos: Make this an item, or Delete */

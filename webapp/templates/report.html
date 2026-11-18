@@ -92,6 +92,7 @@
   </div>
 </div>
 <div id="status"></div>
+{% include "_lockwarn.html" %}
 {% endblock %}
 {% block script %}
 <script>
@@ -136,6 +137,9 @@ $('btnGo').onclick = async () => {
   if (!visit || $('btnGo').disabled) return;
   if (!visit.included && !previousFor(visit).length &&
       !confirm(`Site Visit ${visit.visit_no} has no items in the report yet.\n\nGenerate it anyway?`)) return;
+  // this visit, and the earlier visits whose open items it prints, lock
+  const earlier = new Set(previousFor(visit).map(a => a.visit_no));
+  if (!await LockWarn.ask([visit, ...page.visits.filter(v => earlier.has(v.visit_no))], "visit")) return;
   try{ multis = (await api(`/api/visits/${visit.project_id}/photo-choices`)).items; }
   catch(err){ return status(err.message, "bad"); }
   if (!multis.length) return build(null, $('btnGo'));
@@ -219,8 +223,10 @@ function renderOpen(){
     : "No open action items — every action item is closed out.";
   $('btnOpen').disabled = !n;
 }
-$('btnOpen').onclick = () => {
+$('btnOpen').onclick = async () => {
   if (!openItems().length) return;
+  const nos = new Set(openItems().map(a => a.visit_no));
+  if (!await LockWarn.ask(page.visits.filter(v => nos.has(v.visit_no)), "open")) return;
   status("Downloading the open action items report…", "ok");
   location.href = `/api/jobs/${JID}/open-items.docx`;
 };

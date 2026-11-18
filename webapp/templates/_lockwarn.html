@@ -1,0 +1,52 @@
+{# Before a report goes out: the item numbers it prints are set for good.
+     await LockWarn.ask(visits, kind) -> true to go ahead
+   visits are the page's visit records ({visit_no, numbers_locked}) the
+   report will lock; ones already locked are left out, and with none left
+   the answer is true without asking. kind is "visit" or "open". #}
+<style>
+#lwDlg{border:0;padding:0;border-radius:16px;width:min(380px,calc(100vw - 32px));background:var(--card);color:var(--fg)}
+#lwDlg::backdrop{background:rgba(0,0,0,.55)}
+#lwDlg .lw-bd{padding:18px 18px 6px}
+#lwDlg .lw-hd{display:flex;gap:10px;align-items:center;font-size:16.5px;font-weight:650}
+#lwDlg .lw-hd svg{width:22px;height:22px;color:var(--brand);flex:0 0 auto}
+#lwDlg p{font-size:14px;line-height:1.5;color:var(--mut);margin:10px 0 0}
+#lwDlg .lw-ft{display:flex;gap:8px;padding:16px 18px 18px}
+#lwDlg .lw-ft button{flex:1;padding:12px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+#lwDlg .lw-no{background:var(--card2);color:var(--fg);border:1px solid var(--line)}
+#lwDlg .lw-yes{background:var(--accent);color:var(--accent-fg);border:0}
+</style>
+<dialog id="lwDlg">
+  <div class="lw-bd">
+    <div class="lw-hd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/>
+      <path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Item numbers will be locked</div>
+    <p id="lwText"></p>
+    <p>You won't be able to reorder these items afterwards, and deleting one will leave a gap in the numbers.</p>
+  </div>
+  <div class="lw-ft"><button class="lw-no" id="lwNo">Cancel</button>
+    <button class="lw-yes" id="lwYes">Lock and generate</button></div>
+</dialog>
+<script>
+window.LockWarn = (() => {
+  const g = id => document.getElementById(id);
+  const list = nos => nos.length === 1 ? `Site Visit ${nos[0]}`
+    : `Site Visits ${nos.slice(0, -1).join(", ")} and ${nos[nos.length - 1]}`;
+  function ask(visits, kind){
+    const nos = [...new Set(visits.filter(v => v && !v.numbers_locked).map(v => v.visit_no))]
+      .sort((a, b) => a - b);
+    if (!nos.length) return Promise.resolve(true);
+    g('lwText').textContent = kind === "open"
+      ? `This report gives the contractor the item numbers from ${list(nos)}. Generating it sets those numbers permanently.`
+      : `Generating this report permanently sets the item numbers for ${list(nos)}${nos.length > 1
+          ? ", including earlier visits whose open action items it lists" : ""}.`;
+    return new Promise(done => {
+      const finish = ok => { g('lwDlg').close(); done(ok); };
+      g('lwYes').onclick = () => finish(true);
+      g('lwNo').onclick = () => finish(false);
+      g('lwDlg').oncancel = ev => { ev.preventDefault(); finish(false); };
+      g('lwDlg').showModal();
+    });
+  }
+  return {ask};
+})();
+</script>

@@ -24,6 +24,7 @@
 {% include "_dictate.html" %}
 {% include "_photos.html" %}
 {% include "_actions.html" %}
+{% include "_lockwarn.html" %}
 {% endblock %}
 {% block script %}
 <script>
@@ -58,7 +59,9 @@ function render(){
 
 async function load(){ page = await api(`/api/jobs/${JID}`); render(); }
 // the same Word report as Generate reports → open items report
-$('btnReport').onclick = () => {
+$('btnReport').onclick = async () => {
+  const nos = new Set(page.action_items.filter(a => a.include && !a.closed_visit_no).map(a => a.visit_no));
+  if (!await LockWarn.ask(page.visits.filter(v => nos.has(v.visit_no)), "open")) return;
   say("Downloading the open action items report…", "ok");
   location.href = `/api/jobs/${JID}/open-items.docx`;
 };

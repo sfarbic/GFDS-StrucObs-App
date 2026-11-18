@@ -210,7 +210,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
 let items = [], plans = [], visit = null, job = null, ei = 0;
 let pendingLoc = null;
 
-const entries = () => items.flatMap(it => it.photos.map(e => ({it, e})));
+const entries = () => items.flatMap(it => it.photos.map(e => ({it, e})))
+  .sort((a, b) => (a.e.number || 1e9) - (b.e.number || 1e9));
 const cur = () => entries()[ei] || null;
 const label = e => `${visit ? visit.visit_no : "?"}.${e.number}`;
 
@@ -229,7 +230,7 @@ const say = (t,c="") => { $('status').className = "msg "+c; $('status').textCont
 function render(){
   const all = entries(), c = cur();
   $('visitSub').textContent = (visit ? `Site Visit ${visit.visit_no} · ` : "") +
-    `${all.length} item${all.length===1?"":"s"}`;
+    `${all.length} item${all.length===1?"":"s"}` + (visit && visit.numbers_locked ? " · numbers locked" : "");
   $('prev').disabled = ei <= 0;
   const on = !!c;
   ['btnDelItem','toolLoc','desc','action','micDesc','micAct']
@@ -314,7 +315,9 @@ $('next').onclick = async () => {
 $('btnDelItem').onclick = async () => {
   const c = cur(); if (!c) return;
   const n = (c.e.images || []).length;
-  if (!confirm(`Delete ITEM ${label(c.e)}?\n\n${n ? `Its ${n} photo${n===1?"":"s"} and ` : "Its "}details will be permanently removed. This cannot be undone.`)) return;
+  if (!confirm(`Delete ITEM ${label(c.e)}?\n\n${n ? `Its ${n} photo${n===1?"":"s"} and ` : "Its "}details will be permanently removed. This cannot be undone.${visit && visit.numbers_locked
+    ? `\n\nThe item numbers are locked, so this leaves a gap: ITEM ${label(c.e)} will be missing.`
+    : "\n\nThe items after it move up one number."}`)) return;
   try{
     // the item group goes when this is its only entry; otherwise just the entry
     if (c.it.photos.length > 1) await api(`/api/item/${c.it.item_id}/photo/${c.e.photo_id}`, {method:"DELETE"});

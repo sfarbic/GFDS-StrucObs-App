@@ -1,0 +1,156 @@
+{% extends "_base.html" %}
+{% block title %}Site visit items — GFDS Observation App{% endblock %}
+{% block style %}
+.lockbar{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--mut);
+  background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:14px}
+.lockbar b{color:var(--fg);font-weight:650}
+#list{margin-top:14px;touch-action:pan-y}
+.ic{display:flex;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);
+  border-radius:13px;padding:9px 6px 9px 9px;margin-bottom:10px;cursor:pointer;position:relative;
+  user-select:none;-webkit-user-select:none}
+.ic .th{width:62px;height:62px;flex:0 0 auto;border-radius:9px;overflow:hidden;background:var(--card2);
+  display:grid;place-items:center;color:var(--mut);font-size:11px}
+.ic .th img{width:100%;height:100%;object-fit:cover;display:block}
+.ic .bd{flex:1;min-width:0}
+.ic .hd{font-size:14px;font-weight:650}
+.ic .hd small{color:var(--mut);font-weight:400}
+.ic .ds{font-size:13px;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ic .mt{font-size:12px;color:var(--mut);margin-top:3px}
+.ic .mt b{font-weight:600}
+.ic .grip{flex:0 0 auto;width:40px;align-self:stretch;display:grid;place-items:center;color:var(--mut);
+  cursor:grab;touch-action:none;border-radius:9px}
+.ic .grip svg{width:22px;height:22px}
+.ic.dragging{z-index:5;border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--card));
+  box-shadow:0 8px 24px rgba(0,0,0,.18);cursor:grabbing}
+.ic.locked .grip{cursor:default}
+.pill{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:4px;vertical-align:1px}
+.pill.open{background:color-mix(in srgb,var(--warn) 16%,var(--card));color:var(--warn)}
+.pill.closed{background:var(--card2);color:var(--mut)}
+.pill.empty{background:var(--card2);color:var(--mut)}
+{% endblock %}
+{% block content %}
+<div class="top">
+  <a class="back" href="/projects/{{ jid }}" title="Project">&lsaquo;</a>
+  <div class="t"><b id="title">Site visit items</b><small id="sub">&nbsp;</small></div>
+</div>
+<div class="lockbar" id="lockbar" hidden></div>
+<div id="list"></div>
+{% endblock %}
+{% block script %}
+<script>
+const JID = {{ jid|tojson }}, PID = {{ pid|tojson }};
+let items = [], visit = null;
+const GRIP = `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>`;
+const LOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+const locked = () => !!(visit && visit.numbers_locked);
+
+function card(a, n){
+  const pill = a.blank ? `<span class="pill empty">EMPTY</span>`
+    : a.action ? (a.closed_visit_no ? `<span class="pill closed">CLOSED</span>` : `<span class="pill open">OPEN</span>`) : "";
+  return `<div class="ic${locked() ? " locked" : ""}" data-id="${a.photo_id}">
+    <div class="th">${a.thumb ? `<img src="${a.thumb}" alt="" loading="lazy" draggable="false">` : "No photo"}</div>
+    <div class="bd">
+      <div class="hd">ITEM <span class="no">${visit.visit_no}.${n}</span>${pill}
+        ${a.photos > 1 ? `<small>· ${a.photos} photos</small>` : ""}</div>
+      <div class="ds">${a.description ? esc(a.description) : `<span style="color:var(--mut)">No description</span>`}</div>
+      ${a.action ? `<div class="mt"><b>Action:</b> ${esc(a.action)}</div>` : ""}
+      ${a.location ? `<div class="mt">📍 ${esc(a.location)}</div>` : ""}
+    </div>
+    <div class="grip" aria-label="${locked() ? "Numbers locked" : "Drag to reorder"}">${locked() ? LOCK : GRIP}</div>
+  </div>`;
+}
+
+function render(){
+  $('title').textContent = `Site Visit ${visit.visit_no} items`;
+  const n = items.length;
+  $('sub').textContent = n ? `${n} item${n===1?"":"s"} · ${locked() ? "numbers locked" : "hold ⠿ and drag to reorder"}` : "No items yet";
+  $('lockbar').hidden = !locked();
+  if (locked()) $('lockbar').innerHTML = `<span style="width:18px;flex:0 0 auto">${LOCK}</span><div><b>Item numbers locked
+    ${localDate(visit.numbers_locked)}</b><br>A report went out with these numbers, so they can't
+    be reordered. Deleting an item now leaves a gap.</div>`;
+  $('list').innerHTML = n ? items.map((a, i) => card(a, a.number ?? i + 1)).join("")
+    : `<div class="empty">No items in this visit yet. Open the visit and take the first photo.</div>`;
+  $('list').querySelectorAll('.ic').forEach(el => {
+    // a drag ends with a click on the card under the finger: not a tap to open it
+    el.onclick = ev => { if (!ev.target.closest('.grip') && Date.now() - lastDrag > 400) openItem(el.dataset.id); };
+    if (!locked()) el.querySelector('.grip').addEventListener('pointerdown', ev => startDrag(ev, el));
+  });
+}
+
+/* tap a card: open that item on the edit site visit screen */
+async function openItem(id){
+  try{
+    await api(`/api/projects/${PID}/open`, {method:"POST"});
+    location.href = `/capture?photo=${encodeURIComponent(id)}`;
+  }catch(err){ say(err.message,"bad"); }
+}
+
+/* drag by the handle: the card follows the finger, the others make room,
+   and the numbers follow the order; on release the new order is saved */
+let drag = null, lastDrag = 0;
+function startDrag(ev, el){
+  ev.preventDefault();
+  const r = el.getBoundingClientRect();
+  drag = {el, id: el.dataset.id, dy: ev.clientY - r.top, startY: ev.clientY, y: ev.clientY, moved: false};
+  el.classList.add('dragging');
+  // follow the finger anywhere on the page, so a release off the card still counts
+  addEventListener('pointermove', onMove);
+  addEventListener('pointerup', endDrag);
+  addEventListener('pointercancel', endDrag);
+  drag.timer = setInterval(autoScroll, 30);
+}
+function onMove(ev){
+  if (!drag) return;
+  drag.y = ev.clientY;
+  drag.moved = drag.moved || Math.abs(ev.clientY - drag.startY) > 4;
+  place();
+}
+function place(){
+  const {el} = drag;
+  el.style.transform = "";
+  const cards = [...$('list').children].filter(c => c !== el);
+  // the slot whose middle the dragged card's middle has passed
+  const mid = drag.y - drag.dy + el.offsetHeight / 2;
+  const before = cards.find(c => { const r = c.getBoundingClientRect(); return mid < r.top + r.height / 2; });
+  if (before) $('list').insertBefore(el, before); else $('list').append(el);
+  const r = el.getBoundingClientRect();
+  el.style.transform = `translateY(${drag.y - drag.dy - r.top}px)`;
+  [...$('list').children].forEach((c, i) => { c.querySelector('.no').textContent = `${visit.visit_no}.${i + 1}`; });
+}
+function autoScroll(){
+  if (!drag) return;
+  const edge = 70, h = innerHeight;
+  const step = drag.y < edge ? -12 : drag.y > h - edge ? 12 : 0;
+  if (step){ scrollBy(0, step); place(); }
+}
+async function endDrag(ev){
+  if (!drag) return;
+  if (ev && ev.clientY != null && ev.type === 'pointerup'){ drag.y = ev.clientY; place(); }
+  const moved = drag.moved || (ev && Math.abs((ev.clientY ?? drag.startY) - drag.startY) > 4);
+  const {el} = drag;
+  clearInterval(drag.timer);
+  removeEventListener('pointermove', onMove);
+  removeEventListener('pointerup', endDrag);
+  removeEventListener('pointercancel', endDrag);
+  el.classList.remove('dragging'); el.style.transform = "";
+  drag = null; lastDrag = Date.now();
+  const order = [...$('list').children].map(c => c.dataset.id);
+  if (!moved || order.join() === items.map(a => a.photo_id).join()) return;
+  try{
+    await api(`/api/visits/${PID}/order`, {method:"POST", json: {photo_ids: order}});
+    await load();
+    say("Order saved. Items renumbered.","ok");
+  }catch(err){ say(err.message,"bad"); await load(); }
+}
+
+async function load(){
+  const r = await api(`/api/visits/${PID}/items`);
+  visit = r.visit; items = r.items;
+  render();
+}
+load().then(() => Tips.run("visititems", [
+  {at: '#list .grip', text: "Hold here and drag to put the items in a new order. The item numbers follow, until a report locks them."},
+  {at: '#list .ic', text: "Tap an item to open it and edit it."},
+])).catch(e => say(e.message,"bad"));
+</script>
+{% endblock %}

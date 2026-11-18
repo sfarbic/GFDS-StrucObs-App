@@ -70,11 +70,19 @@ def build_zip(data: dict, report_docx: bytes, *, name: str, item_dir, plans_dir:
     return buf
 
 
+def _item_order(it):
+    """Items run in item-number order (the order the visit's list shows and
+    can be dragged into); one not numbered yet goes last, by its id."""
+    nums = [ph["number"] for ph in it.get("photos") or []
+            if isinstance(ph.get("number"), int) and ph["number"] > 0]
+    return (min(nums) if nums else 10 ** 9, str(it.get("item_id")))
+
+
 def _entries(data: dict, item_dir):
     """(Observation, photo path or None) for every included entry. An entry
     whose image isn't taken yet (or an item with no entries) still has a pin
     for the plans; it just has no photo to tag."""
-    for item in sorted(data.get("items", []), key=lambda it: str(it.get("item_id"))):
+    for item in sorted(data.get("items", []), key=_item_order):
         entries = sorted(item.get("photos") or [], key=lambda ph: ph.get("seq") or 0)
         if not entries:
             if item.get("include", True):

@@ -331,10 +331,78 @@ def test_an_item_with_nothing_in_it_is_left_out_of_the_report(client):
     client.post("/api/item")                                  # 1.2: nothing entered
     _entry(client, action="Install the HDU.")                 # 1.3: an action only
     text = _report(client)
-    assert "ITEM 1.1" in text and "ITEM 1.3" in text
-    assert "ITEM 1.2" not in text
+    # the report locks the numbers: the empty item goes and 1.3 closes up to 1.2
+    assert "ITEM 1.1" in text and "ITEM 1.2" in text and "Install the HDU." in text
+    assert "ITEM 1.3" not in text
     visit = client.get(f"/api/jobs/{jid}").get_json()["visits"][0]
     assert visit["project_id"] == v1["project_id"] and visit["included"] == 2
+    assert visit["photos"] == 2 and visit["numbers_locked"]
+
+
+def _numbers(client):
+    items = client.get("/api/visit").get_json()["items"]
+    return [(e["description"], e["number"]) for it in items for e in it["photos"]]
+
+
+def test_deleting_an_item_closes_up_the_numbers(client):
+    jid = _job(client)["job_id"]
+    _visit(client, jid, 1)
+    a, b, c = (_entry(client, description=d) for d in ("A", "B", "C"))
+    client.delete(f"/api/item/{b['photo_id'][:3]}")
+    assert _numbers(client) == [("A", 1), ("C", 2)]
+
+
+def test_items_can_be_dragged_into_a_new_order(client):
+    jid = _job(client)["job_id"]
+    v = _visit(client, jid, 1)
+    a, b, c = (_entry(client, description=d) for d in ("A", "B", "C"))
+    r = client.post(f"/api/visits/{v['project_id']}/order",
+                    json={"photo_ids": [c["photo_id"], a["photo_id"], b["photo_id"]]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert _numbers(client) == [("C", 1), ("A", 2), ("B", 3)]
+    # the report follows the new order
+    text = _report(client)
+    assert text.index("ITEM 1.1") < text.index("ITEM 1.2") < text.index("ITEM 1.3")
+    assert "ITEM 1.1\tC" in text
+    # an order that misses an item is refused
+    bad = client.post(f"/api/visits/{v['project_id']}/order", json={"photo_ids": [a["photo_id"]]})
+    assert bad.status_code in (400, 409)
+
+
+def test_a_report_locks_the_numbers_for_good(client):
+    jid = _job(client)["job_id"]
+    v = _visit(client, jid, 1)
+    a, b, c = (_entry(client, description=d) for d in ("A", "B", "C"))
+    _report(client)
+    r = client.post(f"/api/visits/{v['project_id']}/order",
+                    json={"photo_ids": [c["photo_id"], b["photo_id"], a["photo_id"]]})
+    assert r.status_code == 409 and "locked" in r.get_json()["error"]
+    # deleting now leaves a gap, and a new item gets the next number
+    client.delete(f"/api/item/{b['photo_id'][:3]}")
+    _entry(client, description="D")
+    assert _numbers(client) == [("A", 1), ("C", 3), ("D", 4)]
+
+
+def test_open_items_report_locks_the_visits_it_lists(client):
+    jid = _job(client)["job_id"]
+    v1 = _visit(client, jid, 1)
+    _entry(client, description="Beam", action="Fix it")
+    v2 = _visit(client, jid, 2)
+    _entry(client, description="Note only")
+    assert client.get(f"/api/jobs/{jid}/open-items.docx").status_code == 200
+    visits = {v["visit_no"]: v for v in client.get(f"/api/jobs/{jid}").get_json()["visits"]}
+    assert visits[1]["numbers_locked"] and not visits[2]["numbers_locked"]
+
+
+def test_a_visit_report_locks_earlier_visits_whose_items_it_prints(client):
+    jid = _job(client)["job_id"]
+    _visit(client, jid, 1)
+    _entry(client, description="Beam", action="Fix it")
+    _visit(client, jid, 2)
+    _entry(client, description="Later")
+    _report(client)
+    visits = {v["visit_no"]: v for v in client.get(f"/api/jobs/{jid}").get_json()["visits"]}
+    assert visits[1]["numbers_locked"] and visits[2]["numbers_locked"]
 
 
 def test_sheet_numbers_name_the_location_and_head_the_plan_page(client):
