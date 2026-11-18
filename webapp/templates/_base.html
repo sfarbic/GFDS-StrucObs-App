@@ -96,7 +96,7 @@ footer a{color:var(--mut)}
 <div class="wrap">
 {% block content %}{% endblock %}
 <div class="msg" id="msg"></div>
-<footer>GFDS Site Observation App - V1 - Oct 2026 · <a href="/logout">Sign out</a></footer>
+<footer>GFDS Site Observation App - V1 - Oct 2026<br>{% if signed_in %}Signed in as {{ signed_in.name }} ({{ signed_in.email }}) · {% else %}Signed in with the PIN · {% endif %}<a href="/logout">Sign out</a></footer>
 </div>
 <script>
 const $ = id => document.getElementById(id);

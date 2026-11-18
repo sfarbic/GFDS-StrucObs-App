@@ -74,6 +74,15 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
 PIN = os.environ.get("SITESCRIBE_PIN", "2424")
 
+# Google sign-in: on when both are set (in ~/.strucobs_env on the server).
+# Only Google Workspace accounts on GOOGLE_DOMAIN get in, so the company's
+# Workspace is the list of users; the PIN stays as a backup way in.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+GOOGLE_DOMAIN = os.environ.get("SITESCRIBE_GOOGLE_DOMAIN", "gfdseng.com").strip().lower()
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
 # ---------------------------------------------------------------- auth
 
 # crude per-IP throttle: a 4-digit PIN is only 10k guesses
@@ -89,6 +98,33 @@ def _ip():
 def locked(ip):
     n, until = _fails.get(ip, (0, 0))
     return time.time() < until
+
+
+def google_on():
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+
+def _safe_next(target):
+    """Only a path on this site: never send someone on to another site."""
+    target = target or ""
+    if not target.startswith("/") or target.startswith("//") or "\\" in target:
+        return url_for("index")
+    return target
+
+
+def _base_url():
+    """This site's address for Google's redirect: SITESCRIBE_BASE_URL when
+    set, else the address the request came in on, https unless local."""
+    base = os.environ.get("SITESCRIBE_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    host = request.host_url.rstrip("/")
+    local = request.host.split(":")[0] in ("localhost", "127.0.0.1", "[::1]")
+    return host if local else host.replace("http://", "https://", 1)
+
+
+def _redirect_uri():
+    return _base_url() + "/auth/google/callback"
 
 
 def require_pin(fn):
@@ -129,6 +165,29 @@ button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--acce
 {% if error %}<div class=err>{{ error }}</div>{% endif %}
 </div></body></html>"""
 
+# with Google sign-in on: the Google button first, the PIN tucked under it
+LOGIN_GOOGLE_HTML = LOGIN_HTML.replace("""<form method=post>""", """<a class=gbtn href="/auth/google{{ next_q }}">
+<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 2.9-2.2 5.4-4.7 7.1l7.6 5.9c4.4-4.1 6.9-10.1 6.9-17.5z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>
+Sign in with Google</a>
+<div class=hint>Use your @{{ domain }} account.</div>
+<details{% if pin_open %} open{% endif %}><summary>Use the PIN instead</summary>
+<form method=post>""").replace("""<button>Enter</button>
+</form>""", """<button>Enter</button>
+</form></details>""").replace("""</style>""", """.gbtn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:13px;
+border:1px solid #dadce0;border-radius:10px;background:#fff;color:#1f1f1f;font:600 16px system-ui;text-decoration:none}
+.gbtn svg{width:20px;height:20px}
+.hint{color:var(--mut);font-size:13px;margin:8px 0 22px}
+details{margin-top:6px}summary{color:var(--mut);font-size:13.5px;cursor:pointer;margin-bottom:14px}
+</style>""")
+
+
+def _login_page(error=None, status=200, pin_open=False):
+    from urllib.parse import quote
+    nxt = request.args.get("next")
+    html = LOGIN_GOOGLE_HTML if google_on() else LOGIN_HTML
+    return render_template_string(html, error=error, domain=GOOGLE_DOMAIN, pin_open=pin_open,
+                                  next_q=f"?next={quote(nxt)}" if nxt else ""), status
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -140,13 +199,93 @@ def login():
         if request.form.get("pin", "").strip() == PIN:
             session.permanent = True
             session["ok"] = True
+            session.pop("user", None)
             _fails.pop(ip, None)
-            return redirect(request.args.get("next") or url_for("index"))
+            return redirect(_safe_next(request.args.get("next")))
         n, _ = _fails.get(ip, (0, 0))
         n += 1
         _fails[ip] = (n, time.time() + LOCK_SECONDS if n >= MAX_FAILS else 0)
         error = "Incorrect PIN."
-    return render_template_string(LOGIN_HTML, error=error), (200 if not error else 401)
+    return _login_page(error, 200 if not error else 401, pin_open=request.method == "POST")
+
+
+@app.route("/auth/google")
+def auth_google():
+    """Off to Google's account chooser, limited to the company's domain."""
+    if not google_on():
+        return redirect(url_for("login"))
+    import secrets
+    from urllib.parse import urlencode
+    state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+    session["oauth"] = {"state": state, "nonce": nonce,
+                        "next": _safe_next(request.args.get("next"))}
+    return redirect(GOOGLE_AUTH_URL + "?" + urlencode({
+        "client_id": GOOGLE_CLIENT_ID, "redirect_uri": _redirect_uri(),
+        "response_type": "code", "scope": "openid email profile",
+        "state": state, "nonce": nonce, "hd": GOOGLE_DOMAIN, "prompt": "select_account"}))
+
+
+def _id_token_claims(token):
+    """The claims of an ID token received straight from Google's token
+    endpoint over HTTPS with our client secret, which OpenID Connect allows
+    to be trusted without checking its signature."""
+    import base64
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload))
+    except (IndexError, ValueError, AttributeError):
+        raise ApiError("Google sent back a sign-in we could not read.", 400)
+
+
+def _google_user(code, nonce):
+    """Swap the code from Google for the person's details; ApiError with a
+    message for the login page when they may not come in."""
+    import requests
+    try:
+        r = requests.post(GOOGLE_TOKEN_URL, timeout=15, data={
+            "code": code, "client_id": GOOGLE_CLIENT_ID, "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": _redirect_uri(), "grant_type": "authorization_code"})
+    except requests.RequestException as exc:
+        print(f"[sitescribe] google token exchange failed: {exc!r}", file=sys.stderr)
+        raise ApiError("Could not reach Google to finish signing in. Try again.", 502)
+    if r.status_code != 200:
+        print(f"[sitescribe] google token exchange: {r.status_code} {r.text[:300]}", file=sys.stderr)
+        raise ApiError("Google sign-in did not finish. Try again.", 400)
+    c = _id_token_claims((r.json() or {}).get("id_token"))
+    email = str(c.get("email") or "").lower()
+    if (c.get("iss") not in ("accounts.google.com", "https://accounts.google.com")
+            or c.get("aud") != GOOGLE_CLIENT_ID or float(c.get("exp") or 0) < time.time()
+            or c.get("nonce") != nonce):
+        raise ApiError("That Google sign-in was not valid. Try again.", 400)
+    if (str(c.get("hd") or "").lower() != GOOGLE_DOMAIN or not email.endswith("@" + GOOGLE_DOMAIN)
+            or not c.get("email_verified")):
+        raise ApiError(f"Sign in with your @{GOOGLE_DOMAIN} account"
+                       f"{f' ({email} is not one)' if email else ''}.", 403)
+    return {"email": email, "name": c.get("name") or email.split("@")[0],
+            "picture": c.get("picture") or ""}
+
+
+@app.route("/auth/google/callback")
+def auth_google_callback():
+    oauth = session.pop("oauth", None) or {}
+    if request.args.get("error"):
+        return _login_page("Google sign-in was cancelled.", 401)
+    if not oauth or request.args.get("state") != oauth.get("state") or not request.args.get("code"):
+        return _login_page("That sign-in link has expired. Try again.", 400)
+    try:
+        user = _google_user(request.args["code"], oauth.get("nonce"))
+    except ApiError as exc:
+        return _login_page(exc.message, exc.status)
+    session.permanent = True
+    session["ok"] = True
+    session["user"] = user
+    return redirect(_safe_next(oauth.get("next")))
+
+
+@app.context_processor
+def _signed_in():
+    return {"signed_in": session.get("user")}
 
 
 @app.route("/logout")

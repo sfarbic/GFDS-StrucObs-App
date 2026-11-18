@@ -44,6 +44,21 @@ There is also an always-on shared instance for the team; see [DEPLOY.md](DEPLOY.
 
 API keys go in a `.env` file or environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), never in code.
 
+### Google sign-in
+
+With `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set, the login page offers **Sign in with Google**, and only verified Google Workspace accounts on `gfdseng.com` get in (change the domain with `SITESCRIBE_GOOGLE_DOMAIN`). There is no user list: the company's Google Workspace is the list. The PIN stays as a backup under "Use the PIN instead". Without the two settings, the login is the PIN, as before.
+
+To set it up (once, by a Google Workspace user at the company):
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project, e.g. *GFDS Observation App*.
+2. **Google Auth Platform → Branding / Audience**: app name *GFDS Observation App*, support email, and **Audience: Internal**. Internal means only gfdseng.com accounts can use it, and Google does not need to review the app.
+3. **Clients → Create client → Web application**. Under **Authorized redirect URIs** add `https://<your site>/auth/google/callback` (for the test site, `https://gfdstest.pythonanywhere.com/auth/google/callback`; add the new address too when the app moves). Copy the client ID and secret.
+4. On the server, add them to the environment file next to `SITESCRIBE_PIN`, in the same format, and set a long random `SITESCRIBE_SECRET` there if it is not set already (without it, everyone is signed out whenever the app restarts):
+   `GOOGLE_CLIENT_ID=…`, `GOOGLE_CLIENT_SECRET=…`, `SITESCRIBE_SECRET=…`
+5. Reload the web app. The secret is a password: never commit it or paste it into chat.
+
+If the site sits behind a proxy that changes its address, set `SITESCRIBE_BASE_URL` (e.g. `https://gfdstest.pythonanywhere.com`) so Google sends people back to the right place.
+
 ## Using an AI coding agent?
 
 Give it [AI_INSTRUCTIONS.md](AI_INSTRUCTIONS.md). It explains the one rule that matters (keep the function signatures and the data model exactly as they are) so your code drops into the app without rework.
