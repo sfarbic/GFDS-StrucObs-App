@@ -1151,12 +1151,36 @@ def _job_sort_key(j):
     return (not num, parts, (j.get("name") or "").lower())
 
 
+def _dir_bytes(path):
+    """Total size of the files under path (0 if it isn't there)."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+
+def job_bytes(jid, pids):
+    """What a project keeps on the server: its own plans and data, plus
+    every site visit's data, photos, audio, plans and site photos."""
+    return sum(_dir_bytes(d) for key in [jid, *pids]
+               for d in (project_data_dir(key), project_uploads(key)))
+
+
 @app.route("/api/jobs")
 @require_pin
 def api_jobs():
     with _lock:
         idx = load_index()
-        out = [job_dict(j, idx) for j in load_jobs()["jobs"]]
+        jobs = load_jobs()["jobs"]
+        out = [job_dict(j, idx) for j in jobs]
+        pids = {j["job_id"]: [p["project_id"] for p in job_visits(idx, j["job_id"])]
+                for j in jobs}
+    for j in out:
+        j["bytes"] = job_bytes(j["job_id"], pids[j["job_id"]])
     out.sort(key=_job_sort_key)
     return jsonify(jobs=out)
 

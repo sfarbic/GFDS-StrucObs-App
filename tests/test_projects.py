@@ -460,3 +460,15 @@ def test_an_update_can_carry_photos_that_print_under_it(client):
     assert files == [200, 200]
     client.delete(base + "/updates/0")
     assert [client.get(p["url"]).status_code for p in update["photos"]] == [404, 404]
+
+
+def test_project_list_shows_what_each_project_stores(client):
+    jid = _job(client)["job_id"]
+    other = _job(client, name="Oak Ave", number="24-200")["job_id"]
+    _visit(client, jid, 1)
+    sizes = {j["job_id"]: j["bytes"] for j in client.get("/api/jobs").get_json()["jobs"]}
+    before = sizes[jid]
+    _shoot(client, _entry(client, description="Cracked beam"))
+    sizes = {j["job_id"]: j["bytes"] for j in client.get("/api/jobs").get_json()["jobs"]}
+    assert sizes[jid] > before
+    assert sizes[other] < sizes[jid]
